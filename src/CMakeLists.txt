@@ -62,7 +62,7 @@ endif ()
 if (MSVC)
     set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-" )
 else ()
-    set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti" )
+set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti" )
 endif()
 
 # For gcc < 4.3 and certain Clang versions, Boost needs some extra help
@@ -82,7 +82,7 @@ endif ()
 # Needed to disable dllimport/dllexport for static library
 if (BUILDSTATIC)
     add_definitions ("-DOSL_STATIC_LIBRARY")
-endif()
+endif ()
 
 if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
     # CMake doesn't automatically know what do do with
@@ -229,7 +229,7 @@ macro ( TESTSUITE )
         endif ()
 
         if (VERBOSE)
-            message (STATUS "TEST ${_testname}: ${CMAKE_BINARY_DIR}/testsuite/runtest.py ${_testdir} ${_extra_test_args}")
+        message (STATUS "TEST ${_testname}: ${CMAKE_BINARY_DIR}/testsuite/runtest.py ${_testdir} ${_extra_test_args}")
         endif ()
 
         # Run the test unoptimized

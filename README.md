@@ -1,13 +1,13 @@
 Table of contents
 ------------------
 
-* Introduction
-* How OSL is different
-* What OSL consists of
-* Building OSL
-* Current state of the project and road map
-* Contacts
-* Credits
+  * Introduction
+  * How OSL is different
+  * What OSL consists of
+  * Building OSL
+  * Current state of the project and road map
+  * Contacts
+  * Credits
 
 
 Introduction
