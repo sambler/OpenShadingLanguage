@@ -17,7 +17,7 @@ if (BUILDSTATIC)
     ADD_LIBRARY ( oslcomp STATIC ${liboslcomp_srcs} )
     ADD_DEFINITIONS ( -DBUILD_STATIC=1 )
 else ()
-    ADD_LIBRARY ( oslcomp SHARED ${liboslcomp_srcs} )
+ADD_LIBRARY ( oslcomp SHARED ${liboslcomp_srcs} )
 endif ()
 
 TARGET_LINK_LIBRARIES ( oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
