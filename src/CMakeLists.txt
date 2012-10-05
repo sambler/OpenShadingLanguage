@@ -169,9 +169,9 @@ add_subdirectory (liboslexec)
 
 add_subdirectory (oslc)
 add_subdirectory (oslinfo)
+add_subdirectory (shaders)
 
 if (WITH_TESTS)
-    add_subdirectory (shaders)
     add_subdirectory (testshade)
     add_subdirectory (testrender)
 endif ()
