@@ -96,17 +96,32 @@ else ()
     SET (liboslexec_srcs ${liboslexec_srcs} llvm_ops.cpp)
 endif ()
 
-ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
-TARGET_LINK_LIBRARIES ( oslexec
-                        ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                        ${OPENIMAGEIO_LIBRARY}
-                        ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                        ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
-ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
-LINK_ILMBASE ( oslexec )
+if (BUILDSTATIC)
+    ADD_LIBRARY ( oslexec STATIC ${liboslexec_srcs} )
+    TARGET_LINK_LIBRARIES ( oslexec
+                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
+                            ${OPENIMAGEIO_LIBRARY}
+                            ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
+                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+    ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
+    LINK_ILMBASE ( oslexec )
 
-INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
+    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 
+    add_definitions(-DBUILD_STATIC=1)
+else ()
+    ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
+    TARGET_LINK_LIBRARIES ( oslexec
+                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
+                            ${OPENIMAGEIO_LIBRARY}
+                            ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
+                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+    ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
+    LINK_ILMBASE ( oslexec )
+    SET_TARGET_PROPERTIES(oslexec PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
+
+    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
+endif ()
 
 
 # Unit tests

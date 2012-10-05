@@ -9,6 +9,9 @@ set (OSL_LIBRARY_VERSION_PATCH 0)
 set (OSO_FILE_VERSION_MAJOR 1)
 set (OSO_FILE_VERSION_MINOR 0)
 
+set (BUILDSTATIC OFF CACHE BOOL "Build static library instead of shared")
+set (LINKSTATIC OFF CACHE BOOL "Link with static external libraries when possible")
+
 
 cmake_minimum_required (VERSION 2.6)
 if (NOT CMAKE_VERSION VERSION_LESS 2.8.4)
