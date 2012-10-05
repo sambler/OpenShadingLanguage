@@ -11,6 +11,7 @@ set (OSO_FILE_VERSION_MINOR 0)
 
 set (BUILDSTATIC OFF CACHE BOOL "Build static library instead of shared")
 set (LINKSTATIC OFF CACHE BOOL "Link with static external libraries when possible")
+set (WITH_TESTS ON CACHE BOOL "Build test files")
 
 
 cmake_minimum_required (VERSION 2.6)
@@ -167,10 +168,13 @@ add_subdirectory (liboslquery)
 add_subdirectory (liboslexec)
 
 add_subdirectory (oslc)
-add_subdirectory (shaders)
 add_subdirectory (oslinfo)
-add_subdirectory (testshade)
-add_subdirectory (testrender)
+
+if (WITH_TESTS)
+    add_subdirectory (shaders)
+    add_subdirectory (testshade)
+    add_subdirectory (testrender)
+endif ()
 
 add_subdirectory (include)
 add_subdirectory (doc)
