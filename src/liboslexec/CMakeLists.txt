@@ -117,27 +117,27 @@ else ()
 ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
 endif ()
 
-    TARGET_LINK_LIBRARIES ( oslexec
-                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                            ${OPENIMAGEIO_LIBRARY}
+TARGET_LINK_LIBRARIES ( oslexec
+                        ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
+                        ${OPENIMAGEIO_LIBRARY}
                         ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
-                            ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
-    ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
-    LINK_ILMBASE ( oslexec )
+                        ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
+                        ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
+LINK_ILMBASE ( oslexec )
 
 if (BUILDSTATIC)
     INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
 else ()
-    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
+INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
 endif ()
 
 # Unit tests
-    add_executable (closure_test closure_test.cpp)
-    add_executable (accum_test accum_test.cpp)
+add_executable (closure_test closure_test.cpp)
+add_executable (accum_test accum_test.cpp)
 target_link_libraries ( closure_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} )
 target_link_libraries ( accum_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} )
-    link_ilmbase (closure_test)
-    link_ilmbase (accum_test)
-    add_test (unit_closure ${CMAKE_BINARY_DIR}/liboslexec/closure_test)
-    add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)
+link_ilmbase (closure_test)
+link_ilmbase (accum_test)
+add_test (unit_closure ${CMAKE_BINARY_DIR}/liboslexec/closure_test)
+add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)
