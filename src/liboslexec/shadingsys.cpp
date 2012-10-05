@@ -1427,6 +1427,7 @@ const ClosureRegistry::ClosureEntry *ClosureRegistry::get_entry(ustring name)con
 OSL_NAMESPACE_EXIT
 
 
+#if !defined(BUILD_STATIC)
 // Symbols needed to resolve some linkage issues because we pull some
 // components in from liboslcomp.
 int oslparse() { return 0; }
@@ -1435,3 +1436,4 @@ public:
     oslFlexLexer (std::istream *in, std::ostream *out);
 };
 oslFlexLexer::oslFlexLexer (std::istream *in, std::ostream *out) { }
+#endif
