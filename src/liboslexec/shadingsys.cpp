@@ -42,7 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OpenImageIO/dassert.h"
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/filesystem.h"
-#include "OpenImageIO/optparser.h"
+# include "OpenImageIO/optparser.h"
 
 using namespace OSL;
 using namespace OSL::pvt;
@@ -259,7 +259,7 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_range_checking(true), m_unknown_coordsys_error(true),
       m_greedyjit(false), m_countlayerexecs(false),
       m_max_warnings_per_thread(100),
-      m_optimize(2),
+      m_optimize (2),
       m_opt_constant_param(true), m_opt_constant_fold(true),
       m_opt_stale_assign(true), m_opt_elide_useless_ops(true),
       m_opt_elide_unconnected_outputs(true),
@@ -761,7 +761,7 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("stat:mem_inst_paramvals_peak", long long, m_stat_mem_inst_paramvals.peak());
     ATTR_DECODE ("stat:mem_inst_connections_current", long long, m_stat_mem_inst_connections.current());
     ATTR_DECODE ("stat:mem_inst_connections_peak", long long, m_stat_mem_inst_connections.peak());
-
+    
     return false;
 #undef ATTR_DECODE
 #undef ATTR_DECODE_STRING
@@ -905,7 +905,7 @@ ShadingSystemImpl::getstats (int level) const
     out << "  Shading groups:   " << m_stat_groups << "\n";
     out << "    Total instances in all groups: " << m_stat_groupinstances << "\n";
     float iperg = (float)m_stat_groupinstances/std::max(m_stat_groups,1);
-    out << "    Avg instances per group: "
+    out << "    Avg instances per group: " 
         << Strutil::format ("%.1f", iperg) << "\n";
     out << "  Shading contexts: " << m_stat_contexts << "\n";
     if (m_countlayerexecs)
@@ -928,7 +928,7 @@ ShadingSystemImpl::getstats (int level) const
 
     out << Strutil::format ("  Derivatives needed on %d / %d symbols (%.1f%%)\n",
                             (int)m_stat_syms_with_derivs, (int)m_stat_total_syms,
-                            (100.0*(int)m_stat_syms_with_derivs)/std::max((int)m_stat_total_syms,1));
+                            (100.0*(int)m_stat_syms_with_derivs)/std::max((int)m_stat_total_syms,1)); 
 #endif
 
     out << "  Compiled " << m_stat_groups_compiled << " groups, "
@@ -938,20 +938,20 @@ ShadingSystemImpl::getstats (int level) const
         << m_stat_merged_inst_opt << " after opt) in "
         << Strutil::timeintervalformat (m_stat_inst_merge_time, 2) << "\n";
     if (m_stat_instances_compiled > 0)
-        out << "  After optimization, " << m_stat_empty_instances
-            << " empty instances ("
+    out << "  After optimization, " << m_stat_empty_instances 
+        << " empty instances ("
             << (int)(100.0f*m_stat_empty_instances/m_stat_instances_compiled) << "%)\n";
     if (m_stat_groups_compiled > 0)
-        out << "  After optimization, " << m_stat_empty_groups << " empty groups ("
-            << (int)(100.0f*m_stat_empty_groups/m_stat_groups_compiled)<< "%)\n";
+    out << "  After optimization, " << m_stat_empty_groups << " empty groups ("
+        << (int)(100.0f*m_stat_empty_groups/m_stat_groups_compiled)<< "%)\n";
     if (m_stat_instances_compiled > 0 || m_stat_groups_compiled > 0) {
-        out << Strutil::format ("  Optimized %llu ops to %llu (%.1f%%)\n",
-                                (long long)m_stat_preopt_ops,
-                                (long long)m_stat_postopt_ops,
+    out << Strutil::format ("  Optimized %llu ops to %llu (%.1f%%)\n",
+                            (long long)m_stat_preopt_ops,
+                            (long long)m_stat_postopt_ops,
                                 100.0*(double(m_stat_postopt_ops)/double(std::max(1,(int)m_stat_preopt_ops))-1.0));
-        out << Strutil::format ("  Optimized %llu symbols to %llu (%.1f%%)\n",
-                                (long long)m_stat_preopt_syms,
-                                (long long)m_stat_postopt_syms,
+    out << Strutil::format ("  Optimized %llu symbols to %llu (%.1f%%)\n",
+                            (long long)m_stat_preopt_syms,
+                            (long long)m_stat_postopt_syms,
                                 100.0*(double(m_stat_postopt_syms)/double(std::max(1,(int)m_stat_preopt_syms))-1.0));
     }
     out << "  Runtime optimization cost: "
@@ -982,13 +982,13 @@ ShadingSystemImpl::getstats (int level) const
     }
     if (m_stat_pointcloud_searches || m_stat_pointcloud_writes) {
         out << "  Pointcloud operations:\n";
-        out << "    pointcloud_search calls: " << m_stat_pointcloud_searches << "\n";
+        out << "  pointcloud_search calls: " << m_stat_pointcloud_searches << "\n";
         out << "      max query results: " << m_stat_pointcloud_max_results << "\n";
         double avg = m_stat_pointcloud_searches ?
             (double)m_stat_pointcloud_searches_total_results/(double)m_stat_pointcloud_searches : 0.0;
         out << "      average query results: " << Strutil::format ("%.1f", avg) << "\n";
         out << "      failures: " << m_stat_pointcloud_failures << "\n";
-        out << "    pointcloud_get calls: " << m_stat_pointcloud_gets << "\n";
+        out << "  pointcloud_get calls: " << m_stat_pointcloud_gets << "\n";
         out << "    pointcloud_write calls: " << m_stat_pointcloud_writes << "\n";
     }
     out << "  Memory total: " << m_stat_memory.memstat() << '\n';
@@ -1405,7 +1405,7 @@ ShadingSystemImpl::decode_connected_param (const char *connectionname,
 
     if (bracket && ! c.type.is_closure() &&
             c.type.aggregate() != TypeDesc::SCALAR) {
-        // There was at least one set of brackets that appears to be
+        // There was at least one set of brackets that appears to be 
         // selecting a color/vector component.
         c.channel = atoi (bracket+1);
         if (c.channel >= (int)c.type.aggregate()) {
