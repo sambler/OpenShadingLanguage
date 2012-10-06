@@ -17,10 +17,17 @@ SET ( liboslexec_srcs
           lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
           opclosure.cpp builtin_closures.cpp
           llvm_gen.cpp llvm_instance.cpp llvm_util.cpp
-          ../liboslcomp/ast.cpp ../liboslcomp/codegen.cpp
-          ../liboslcomp/oslcomp.cpp ../liboslcomp/symtab.cpp
-          ../liboslcomp/typecheck.cpp
     )
+
+# oslcomp symbols used in oslexec
+if (NOT BUILDSTATIC)
+    LIST(APPEND liboslexec_srcs
+        ../liboslcomp/ast.cpp
+        ../liboslcomp/codegen.cpp
+        ../liboslcomp/oslcomp.cpp
+        ../liboslcomp/symtab.cpp
+        ../liboslcomp/typecheck.cpp)
+endif ()
 
 
 include_directories ( ${CMAKE_SOURCE_DIR}/liboslcomp )
