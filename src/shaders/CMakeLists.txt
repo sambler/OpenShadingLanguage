@@ -5,7 +5,7 @@ add_custom_command (OUTPUT ${CMAKE_CURRENT_BINARY_DIR}/stdosl.h
 
 file (GLOB shader_headers "*.h")
 
-if (WITH_TESTS)
+if (BUILD_TESTING)
     file (GLOB shader_source "*.osl")
 
     macro (osl_compile oslsrc objlist headers)

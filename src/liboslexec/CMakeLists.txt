@@ -125,7 +125,7 @@ endif ()
 
 
 # Unit tests
-if (WITH_TESTS)
+if (BUILD_TESTING)
     add_executable (closure_test closure_test.cpp)
     add_executable (accum_test accum_test.cpp)
     target_link_libraries ( closure_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
