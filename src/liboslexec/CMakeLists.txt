@@ -26,7 +26,8 @@ if (NOT BUILDSTATIC)
         ../liboslcomp/codegen.cpp
         ../liboslcomp/oslcomp.cpp
         ../liboslcomp/symtab.cpp
-        ../liboslcomp/typecheck.cpp)
+        ../liboslcomp/typecheck.cpp
+        )
 endif ()
 
 
