@@ -43,5 +43,5 @@ else()
 endif()
 
 install (FILES ${shader_headers} ${shader_source} ${shader_objs}
-         DESTINATION shaders)
+         DESTINATION ${CMAKE_INSTALL_PREFIX}/share/openshadinglanguage/shaders)
 
