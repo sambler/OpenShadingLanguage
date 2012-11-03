@@ -123,6 +123,14 @@ using OIIO::isnan;
 using OIIO::isfinite;
 #endif
 
+#if defined(__FreeBSD__)
+#include <sys/param.h>
+#endif
+
+#if (defined(__FreeBSD__) && (__FreeBSD_version < 803000))
+using OIIO::log2f;
+#endif
+
 // Handy re-casting macros
 #define USTR(cstr) (*((ustring *)&cstr))
 #define MAT(m) (*(Matrix44 *)m)
