@@ -42,9 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OpenImageIO/dassert.h"
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/filesystem.h"
-#if OIIO_VERSION >= 1100
-# include "OpenImageIO/optparser.h"
-#endif
+#include "OpenImageIO/optparser.h"
 
 using namespace OSL;
 using namespace OSL::pvt;
@@ -250,22 +248,23 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     : m_renderer(renderer), m_texturesys(texturesystem), m_err(err),
       m_statslevel (0), m_lazylayers (true),
       m_lazyglobals (false),
-      m_clearmemory (false), m_rebind (false), m_debugnan (false),
+      m_clearmemory (false), m_debugnan (false),
       m_lockgeom_default (false), m_strict_messages(true),
       m_range_checking(true), m_unknown_coordsys_error(true),
-      m_greedyjit(false),
+      m_greedyjit(false), m_countlayerexecs(false),
       m_optimize (2),
       m_opt_constant_param(true), m_opt_constant_fold(true),
       m_opt_stale_assign(true), m_opt_elide_useless_ops(true),
       m_opt_elide_unconnected_outputs(true),
       m_opt_peephole(true), m_opt_coalesce_temps(true),
-      m_opt_assign(true),
+      m_opt_assign(true), m_opt_mix(true),
       m_optimize_nondebug(false),
       m_llvm_optimize(0),
       m_debug(false), m_llvm_debug(false),
       m_commonspace_synonym("world"),
       m_colorspace("Rec709"),
       m_max_local_mem_KB(1024),
+      m_compile_report(false),
       m_in_group (false),
       m_stat_opt_locking_time(0), m_stat_specialization_time(0),
       m_stat_total_llvm_time(0),
@@ -295,6 +294,8 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     m_stat_pointcloud_max_results = 0;
     m_stat_pointcloud_failures = 0;
     m_stat_pointcloud_gets = 0;
+    m_stat_pointcloud_writes = 0;
+    m_stat_layers_executed = 0;
 
     m_groups_to_compile_count = 0;
     m_threads_currently_compiling = 0;
@@ -444,6 +445,7 @@ ShadingSystemImpl::setup_op_descriptors ()
     OP (mxcompassign, mxcompassign,       none,          false);
     OP (mxcompref,   mxcompref,           none,          true);
     OP (min,         minmax,              min,           true);
+    OP (mix,         mix,                 mix,           true);
     OP (mod,         modulus,             none,          true);
     OP (mul,         mul,                 mul,           true);
     OP (neg,         neg,                 neg,           true);
@@ -455,7 +457,7 @@ ShadingSystemImpl::setup_op_descriptors ()
     OP (pnoise,      noise,               none,          true);
     OP (point,       construct_triple,    triple,        true);
     OP (pointcloud_search, pointcloud_search, pointcloud_search, false);
-    OP (pointcloud_get, pointcloud_get,   none,          false);
+    OP (pointcloud_get, pointcloud_get,   pointcloud_get,false);
     OP (pointcloud_write, pointcloud_write, none,        false);
     OP (pow,         generic,             pow,           true);
     OP (printf,      printf,              none,          false);
@@ -552,11 +554,9 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
         return true;                                                    \
     }
 
-#if OIIO_VERSION >= 1100 /* 0.11 and higher only */
     if (name == "options" && type == TypeDesc::STRING) {
         return OIIO::optparser (*(ShadingSystem *)this, *(const char **)val);
     }
-#endif
 
     lock_guard guard (m_mutex);  // Thread safety
     ATTR_SET ("statistics:level", int, m_statslevel);
@@ -564,7 +564,6 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("lazylayers", int, m_lazylayers);
     ATTR_SET ("lazyglobals", int, m_lazyglobals);
     ATTR_SET ("clearmemory", int, m_clearmemory);
-    ATTR_SET ("rebind", int, m_rebind);
     ATTR_SET ("debugnan", int, m_debugnan);
     ATTR_SET ("lockgeom", int, m_lockgeom_default);
     ATTR_SET ("optimize", int, m_optimize);
@@ -576,6 +575,7 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("opt_peephole", int, m_opt_peephole);
     ATTR_SET ("opt_coalesce_temps", int, m_opt_coalesce_temps);
     ATTR_SET ("opt_assign", int, m_opt_assign);
+    ATTR_SET ("opt_mix", int, m_opt_mix);
     ATTR_SET ("optimize_nondebug", int, m_optimize_nondebug);
     ATTR_SET ("llvm_optimize", int, m_llvm_optimize);
     ATTR_SET ("llvm_debug", int, m_llvm_debug);
@@ -583,7 +583,9 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("range_checking", int, m_range_checking);
     ATTR_SET ("unknown_coordsys_error", int, m_unknown_coordsys_error);
     ATTR_SET ("greedyjit", int, m_greedyjit);
+    ATTR_SET ("countlayerexecs", int, m_countlayerexecs);
     ATTR_SET ("max_local_mem_KB", int, m_max_local_mem_KB);
+    ATTR_SET ("compile_report", int, m_compile_report);
     ATTR_SET_STRING ("commonspace", m_commonspace_synonym);
     ATTR_SET_STRING ("debug_groupname", m_debug_groupname);
     ATTR_SET_STRING ("debug_layername", m_debug_layername);
@@ -639,7 +641,6 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("lazylayers", int, m_lazylayers);
     ATTR_DECODE ("lazyglobals", int, m_lazyglobals);
     ATTR_DECODE ("clearmemory", int, m_clearmemory);
-    ATTR_DECODE ("rebind", int, m_rebind);
     ATTR_DECODE ("debugnan", int, m_debugnan);
     ATTR_DECODE ("lockgeom", int, m_lockgeom_default);
     ATTR_DECODE ("optimize", int, m_optimize);
@@ -651,6 +652,7 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("opt_peephole", int, m_opt_peephole);
     ATTR_DECODE ("opt_coalesce_temps", int, m_opt_coalesce_temps);
     ATTR_DECODE ("opt_assign", int, m_opt_assign);
+    ATTR_DECODE ("opt_mix", int, m_opt_mix);
     ATTR_DECODE ("optimize_nondebug", int, m_optimize_nondebug);
     ATTR_DECODE ("llvm_optimize", int, m_llvm_optimize);
     ATTR_DECODE ("debug", int, m_debug);
@@ -659,12 +661,14 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("range_checking", int, m_range_checking);
     ATTR_DECODE ("unknown_coordsys_error", int, m_unknown_coordsys_error);
     ATTR_DECODE ("greedyjit", int, m_greedyjit);
+    ATTR_DECODE ("countlayerexecs", int, m_countlayerexecs);
     ATTR_DECODE_STRING ("commonspace", m_commonspace_synonym);
     ATTR_DECODE_STRING ("colorspace", m_colorspace);
     ATTR_DECODE_STRING ("debug_groupname", m_debug_groupname);
     ATTR_DECODE_STRING ("debug_layername", m_debug_layername);
     ATTR_DECODE_STRING ("only_groupname", m_only_groupname);
     ATTR_DECODE ("max_local_mem_KB", int, m_max_local_mem_KB);
+    ATTR_DECODE ("compile_report", int, m_compile_report);
 
     ATTR_DECODE ("stat:masters", int, m_stat_shaders_loaded);
     ATTR_DECODE ("stat:groups", int, m_stat_groups);
@@ -689,6 +693,7 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("stat:getattribute_calls", long long, m_stat_getattribute_calls);
     ATTR_DECODE ("stat:pointcloud_searches", long long, m_stat_pointcloud_searches);
     ATTR_DECODE ("stat:pointcloud_gets", long long, m_stat_pointcloud_gets);
+    ATTR_DECODE ("stat:pointcloud_writes", long long, m_stat_pointcloud_writes);
     ATTR_DECODE ("stat:pointcloud_searches_total_results", long long, m_stat_pointcloud_searches_total_results);
     ATTR_DECODE ("stat:pointcloud_max_results", int, m_stat_pointcloud_max_results);
     ATTR_DECODE ("stat:pointcloud_failures", int, m_stat_pointcloud_failures);
@@ -823,7 +828,8 @@ ShadingSystemImpl::message (const std::string &msg)
 
 
 void
-ShadingSystemImpl::pointcloud_stats (int search, int get, int results)
+ShadingSystemImpl::pointcloud_stats (int search, int get, int results,
+                                     int writes)
 {
     spin_lock lock (m_stat_mutex);
     m_stat_pointcloud_searches += search;
@@ -833,6 +839,7 @@ ShadingSystemImpl::pointcloud_stats (int search, int get, int results)
         ++m_stat_pointcloud_failures;
     m_stat_pointcloud_max_results = std::max (m_stat_pointcloud_max_results,
                                               results);
+    m_stat_pointcloud_writes += writes;
 }
 
 
@@ -859,6 +866,8 @@ ShadingSystemImpl::getstats (int level) const
     out << "    Avg instances per group: " 
         << Strutil::format ("%.1f", iperg) << "\n";
     out << "  Shading contexts: " << m_stat_contexts << "\n";
+    if (m_countlayerexecs)
+        out << "  Total layers executed: " << m_stat_layers_executed << "\n";
 
 #if 0
     long long totalexec = m_layers_executed_uncond + m_layers_executed_lazy +
@@ -922,13 +931,16 @@ ShadingSystemImpl::getstats (int level) const
         out << "     (fail time "
             << Strutil::timeintervalformat (m_stat_getattribute_fail_time, 2) << ")\n";
     }
-    if (m_stat_pointcloud_searches) {
-        out << "  pointcloud_search calls: " << m_stat_pointcloud_searches << "\n";
+    if (m_stat_pointcloud_searches || m_stat_pointcloud_writes) {
+        out << "  Pointcloud operations:\n";
+        out << "    pointcloud_search calls: " << m_stat_pointcloud_searches << "\n";
         out << "      max query results: " << m_stat_pointcloud_max_results << "\n";
-        out << "      average query results: " 
-            << Strutil::format ("%.1f", (double)m_stat_pointcloud_searches_total_results/(double)m_stat_pointcloud_searches) << "\n";
+        double avg = m_stat_pointcloud_searches ? 
+            (double)m_stat_pointcloud_searches_total_results/(double)m_stat_pointcloud_searches : 0.0;
+        out << "      average query results: " << Strutil::format ("%.1f", avg) << "\n";
         out << "      failures: " << m_stat_pointcloud_failures << "\n";
-        out << "  pointcloud_get calls: " << m_stat_pointcloud_gets << "\n";
+        out << "    pointcloud_get calls: " << m_stat_pointcloud_gets << "\n";
+        out << "    pointcloud_write calls: " << m_stat_pointcloud_writes << "\n";
     }
     out << "  Memory total: " << m_stat_memory.memstat() << '\n';
     out << "    Master memory: " << m_stat_mem_master.memstat() << '\n';
