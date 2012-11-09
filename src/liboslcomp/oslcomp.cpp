@@ -152,7 +152,7 @@ preprocess (const std::string &filename,
         }
 
         instream.unsetf (std::ios::skipws);
-        std::string instring = OIIO::Strutil::format("#include \"%s\"\n", stdinclude)
+        std::string instring = OIIO::Strutil::format("#include \"%s\"\n", stdinclude.c_str())
             + std::string (std::istreambuf_iterator<char>(instream.rdbuf()),
                            std::istreambuf_iterator<char>());
         instream.close ();
@@ -281,10 +281,8 @@ preprocess (const std::string &filename,
         fb.close ();
     }
 
-    if (cpppipe)
-        pclose (cpppipe);
-
-    return true;
+    // Test for error in exit status
+    return (pclose(cpppipe) == 0);
 }
 
 #endif
@@ -406,7 +404,10 @@ OSLCompilerImpl::compile (const std::string &filename,
         delete m_lexer;
 
         if (! parseerr) {
-            shader()->typecheck ();
+            if (shader())
+                shader()->typecheck ();
+            else
+                error (ustring(), 0, "No shader function defined");
         }
 
         // Print the parse tree if there were no errors
