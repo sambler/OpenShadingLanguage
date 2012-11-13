@@ -75,11 +75,11 @@ IF ( FLEX_EXECUTABLE AND BISON_EXECUTABLE )
           COMMAND ${BISON_EXECUTABLE} -dv -p ${prefix} -o ${bisonoutputcxx} ${CMAKE_CURRENT_SOURCE_DIR}/${bisonsrc}
           MAIN_DEPENDENCY ${bisonsrc}
           DEPENDS ${${compiler_headers}}
-          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
+          WORKING_DIRECTORY ${FLEX_UP} )
         ADD_CUSTOM_COMMAND ( OUTPUT ${flexoutputcxx} 
           COMMAND ${FLEX_EXECUTABLE} -+ -o ${flexoutputcxx} ${CMAKE_CURRENT_SOURCE_DIR}/${flexsrc} 
           MAIN_DEPENDENCY ${flexsrc}
           DEPENDS ${${compiler_headers}}
-          WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
+          WORKING_DIRECTORY ${FLEX_UP} )
       ENDMACRO ()
 ENDIF ()
