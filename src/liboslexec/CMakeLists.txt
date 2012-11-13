@@ -128,7 +128,7 @@ else ()
     LINK_ILMBASE ( oslexec )
     SET_TARGET_PROPERTIES(oslexec PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
 
-    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
+    INSTALL ( TARGETS oslexec DESTINATION lib )
 endif ()
 
 

@@ -83,22 +83,13 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 
-
-#if defined(oslcomp_EXPORTS)
+#if defined(oslcomp_EXPORTS) || defined(oslexec_EXPORTS) || defined(oslquery_EXPORTS)
 #  define OSLCOMPPUBLIC OSL_DLL_EXPORT
-#else
-#  define OSLCOMPPUBLIC OSL_DLL_IMPORT
-#endif
-
-#if defined(oslexec_EXPORTS)
 #  define OSLEXECPUBLIC OSL_DLL_EXPORT
-#else
-#  define OSLEXECPUBLIC OSL_DLL_IMPORT
-#endif
-
-#if defined(oslquery_EXPORTS)
 #  define OSLQUERYPUBLIC OSL_DLL_EXPORT
 #else
+#  define OSLCOMPPUBLIC OSL_DLL_IMPORT
+#  define OSLEXECPUBLIC OSL_DLL_IMPORT
 #  define OSLQUERYPUBLIC OSL_DLL_IMPORT
 #endif
 

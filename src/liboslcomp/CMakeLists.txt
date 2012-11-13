@@ -27,7 +27,7 @@ else ()
 	LINK_ILMBASE ( oslcomp )
     SET_TARGET_PROPERTIES(oslcomp PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
 
-    INSTALL ( TARGETS oslcomp LIBRARY DESTINATION lib)
+    INSTALL ( TARGETS oslcomp DESTINATION lib)
 endif ()
 
 IF ( USE_BOOST_WAVE )

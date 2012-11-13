@@ -17,5 +17,5 @@ else ()
 	LINK_ILMBASE ( oslquery )
 	SET_TARGET_PROPERTIES(oslquery PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
 
-	INSTALL ( TARGETS oslquery LIBRARY DESTINATION lib )
+	INSTALL ( TARGETS oslquery DESTINATION lib )
 endif ()

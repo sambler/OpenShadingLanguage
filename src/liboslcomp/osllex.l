@@ -102,6 +102,10 @@ using namespace OSL::pvt;
 #define yylval osllval
 #define yylloc osllloc
 
+#ifdef _WIN32
+#define YY_NO_UNISTD_H
+#endif
+
 void preprocess (const char *yytext);
 
 // Macro that sets the yylloc line variables to the current parse line.

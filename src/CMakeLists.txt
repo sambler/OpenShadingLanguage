@@ -59,7 +59,15 @@ endif ()
 ##   if you find the need to turn this on, as OSL classes
 ##   extending LLVM ones will cause linker errors (unless you
 ##   rebuild LLVM with rtti enabled)
-set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti" )
+
+if (NOT MSVC)
+	set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti" )
+else ()
+	set ( CMAKE_CXX_FLAGS_DEBUG "/D_DEBUG /MTd /Zi /Ob0 /Od /RTC1 /GR-" )
+	set ( CMAKE_CXX_FLAGS_MINSIZEREL     "/MT /O1 /Ob1 /D NDEBUG /GR-" )
+	set ( CMAKE_CXX_FLAGS_RELEASE        "/MT /O2 /Ob2 /D NDEBUG /GR-" )
+	set ( CMAKE_CXX_FLAGS_RELWITHDEBINFO "/MT /Zi /O2 /Ob1 /D NDEBUG /GR-" )
+endif()
 
 # For gcc < 4.3, Boost needs some extra help detecting that we've
 # disabled RTTI.
