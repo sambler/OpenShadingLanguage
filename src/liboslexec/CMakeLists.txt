@@ -28,6 +28,8 @@ if (NOT BUILDSTATIC)
         ../liboslcomp/symtab.cpp
         ../liboslcomp/typecheck.cpp
         )
+
+    add_definitions ( -Doslcomp_EXPORTS)
 endif ()
 
 
