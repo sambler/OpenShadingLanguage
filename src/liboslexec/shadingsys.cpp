@@ -52,15 +52,30 @@ using namespace OSL::pvt;
 #undef RGB
 #endif
 
+void dummy_osl_shadeop_llvm_ops();
+void dummy_osl_shadeop_osl_closure();
+void dummy_osl_shadeop_osl_cloud();
+void dummy_osl_shadeop_osl_message();
+void dummy_osl_shadeop_osl_noise();
+void dummy_osl_shadeop_osl_spline();
+void dummy_osl_shadeop_osl_string();
+
 OSL_NAMESPACE_ENTER
-
-
 
 ShadingSystem *
 ShadingSystem::create (RendererServices *renderer,
                        TextureSystem *texturesystem,
                        ErrorHandler *err)
 {
+
+    dummy_osl_shadeop_llvm_ops();
+    dummy_osl_shadeop_osl_closure();
+    dummy_osl_shadeop_osl_cloud();
+    dummy_osl_shadeop_osl_message();
+    dummy_osl_shadeop_osl_noise();
+    dummy_osl_shadeop_osl_spline();
+    dummy_osl_shadeop_osl_string();
+
     // If client didn't supply an error handler, just use the default
     // one that echoes to the terminal.
     if (! err) {

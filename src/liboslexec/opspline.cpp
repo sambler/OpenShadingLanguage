@@ -214,6 +214,9 @@ OSL_SHADEOP void osl_splineinverse_dffdf(void *out, const char *spline_, void *x
     DFLOAT(out) = outtmp;
 }
 
+void dummy_osl_shadeop_osl_spline()
+{
+}
 
 
 } // namespace pvt
