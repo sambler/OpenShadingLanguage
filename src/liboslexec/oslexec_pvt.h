@@ -131,7 +131,7 @@ struct OpDescriptor {
 
 
 // Prefix for OSL shade up declarations, so LLVM can find them
-#define OSL_SHADEOP extern "C" OSLEXECPUBLIC
+#define OSL_SHADEOP extern "C" OSL_DLL_EXPORT
 
 
 

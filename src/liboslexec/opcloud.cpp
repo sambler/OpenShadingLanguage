@@ -114,5 +114,8 @@ osl_pointcloud_write (ShaderGlobals *sg, const char *filename, const Vec3 *pos,
                                        nattribs, names, types, values);
 }
 
+void dummy_osl_shadeop_osl_cloud()
+{
+}
 
 

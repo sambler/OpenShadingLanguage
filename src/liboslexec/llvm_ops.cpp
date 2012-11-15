@@ -1745,3 +1745,8 @@ osl_naninf_check (int ncomps, const void *vals_, int has_derivs,
             return;
         }
 }
+
+void dummy_osl_shadeop_llvm_ops()
+{
+}
+

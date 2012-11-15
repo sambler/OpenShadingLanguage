@@ -155,7 +155,7 @@ preprocess (const std::string &filename,
         std::string instring;
 
 	if (!stdinclude.empty())
-		instring = OIIO::Strutil::format("#include \"%s\"\n", stdinclude.c_str())
+		instring = OIIO::Strutil::format("#include \"%s\"\n", stdinclude.c_str());
 	else
 		instring = "\n";
 

@@ -505,7 +505,5 @@ OSL_SHADEOP void osl_luminance_dfdv (void *sg, void *out, void *c)
     ((float *)out)[2] = ctx->shadingsys().luminance (((const Color3 *)c)[2]);
 }
 
-
-
 }; // namespace pvt
 OSL_NAMESPACE_EXIT

@@ -354,6 +354,9 @@ static const char *llvm_helper_function_table[] = {
     "osl_transformn_vmv", "xXXX",
     "osl_transformn_dvmdv", "xXXX",
 
+    "osl_transform_triple", "iXXiXiXXi",
+    "osl_transform_triple_nonlinear", "iXXiXiXXi",
+
     "osl_mul_mm", "xXXX",
     "osl_mul_mf", "xXXf",
     "osl_mul_m_ff", "xXff",

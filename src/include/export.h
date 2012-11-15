@@ -67,7 +67,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 /// another.
 
 #if defined(_MSC_VER) || defined(__CYGWIN__)
-  #define OSL_DLL_IMPORT __declspec(dllimport)
+  #define OSL_DLL_IMPORT // disabled for static build __declspec(dllimport)
   #define OSL_DLL_EXPORT __declspec(dllexport)
   #define OSL_DLL_LOCAL
 #else

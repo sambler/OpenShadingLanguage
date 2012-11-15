@@ -715,4 +715,10 @@ struct GenericPNoise {
 PNOISE_IMPL_DERIV_OPT (genericpnoise, GenericPNoise)
 
 
+void dummy_osl_shadeop_osl_noise()
+{
+}
+
+
+
 #endif
