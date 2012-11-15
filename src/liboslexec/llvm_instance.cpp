@@ -437,6 +437,7 @@ static const char *llvm_helper_function_table[] = {
     "osl_raytype_name", "iXX",
     "osl_raytype_bit", "iXi",
     "osl_bind_interpolated_param", "iXXLiX",
+	"osl_range_check", "iiiXXi",
 #endif // OSL_LLVM_NO_BITCODE
 
     NULL
