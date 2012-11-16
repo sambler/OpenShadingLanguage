@@ -52,6 +52,7 @@ endif ()
 ## turn on more detailed warnings and consider warnings as errors
 if (NOT MSVC)
     # XXX No -Werror, it fails under linux!
+#    add_definitions ("-Wall -Werror")
     add_definitions ("-Wall")
 endif ()
 
