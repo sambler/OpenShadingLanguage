@@ -67,7 +67,7 @@ ShadingSystem::create (RendererServices *renderer,
                        TextureSystem *texturesystem,
                        ErrorHandler *err)
 {
-
+#ifdef OSL_LLVM_NO_BITCODE
     dummy_osl_shadeop_llvm_ops();
     dummy_osl_shadeop_osl_closure();
     dummy_osl_shadeop_osl_cloud();
@@ -75,6 +75,7 @@ ShadingSystem::create (RendererServices *renderer,
     dummy_osl_shadeop_osl_noise();
     dummy_osl_shadeop_osl_spline();
     dummy_osl_shadeop_osl_string();
+#endif
 
     // If client didn't supply an error handler, just use the default
     // one that echoes to the terminal.
