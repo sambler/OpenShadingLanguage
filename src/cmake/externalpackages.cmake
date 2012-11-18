@@ -244,11 +244,14 @@ endif (USE_OPENGL)
 ###########################################################################
 # LLVM library setup
 
-if (LLVM_DIRECTORY)
-    set (LLVM_CONFIG "${LLVM_DIRECTORY}/bin/llvm-config")
-else ()
-    set (LLVM_CONFIG llvm-config)
-endif ()
+if(NOT LLVM_VERSION)
+	set(LLVM_VERSION "3.0")
+endif()
+
+FIND_PROGRAM(LLVM_CONFIG llvm-config-${LLVM_VERSION} HINTS ${LLVM_DIRECTORY})
+if(NOT LLVM_CONFIG)
+	FIND_PROGRAM(LLVM_CONFIG llvm-config HINTS ${LLVM_DIRECTORY})
+endif()
 
 if(NOT LLVM_DIRECTORY OR EXISTS ${LLVM_CONFIG})
 	execute_process (COMMAND ${LLVM_CONFIG} --version
