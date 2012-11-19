@@ -422,12 +422,13 @@ RuntimeOptimizer::insert_code (int opnum, ustring opname,
             }
         }
         // Adjust param init ranges
-        FOREACH_PARAM (Symbol &s, inst()) {
+        FOREACH_PARAM_BEGIN (Symbol &s, inst()) {
             if (s.initbegin() > opnum)
                 s.initbegin (s.initbegin()+1);
             if (s.initend() > opnum)
                 s.initend (s.initend()+1);
         }
+    	FOREACH_PARAM_END
     }
 
     // Inserting the instruction may change the read/write ranges of
@@ -783,10 +784,11 @@ RuntimeOptimizer::find_basic_blocks (bool do_llvm)
     std::vector<bool> block_begin (code.size(), false);
 
     // Init ops start basic blocks
-    FOREACH_PARAM (const Symbol &s, inst()) {
+    FOREACH_PARAM_BEGIN (const Symbol &s, inst()) {
         if (s.has_init_ops())
             block_begin[s.initbegin()] = true;
     }
+    FOREACH_PARAM_END
 
     // Main code starts a basic block
     block_begin[inst()->m_maincodebegin] = true;
@@ -1352,8 +1354,11 @@ void
 RuntimeOptimizer::mark_outgoing_connections ()
 {
     inst()->outgoing_connections (false);
-    FOREACH_PARAM (Symbol &s, inst())
+
+    FOREACH_PARAM_BEGIN (Symbol &s, inst())
         s.connected_down (false);
+    FOREACH_PARAM_END
+
     for (int lay = m_layer+1;  lay < m_group.nlayers();  ++lay) {
         BOOST_FOREACH (Connection &c, m_group[lay]->m_connections)
             if (c.srclayer == m_layer) {
@@ -1377,7 +1382,7 @@ RuntimeOptimizer::remove_unused_params ()
     SymNeverUsed param_never_used (*this, inst());  // handy predicate
 
     // Get rid of unused params' init ops and clear their read/write ranges
-    FOREACH_PARAM (Symbol &s, inst()) {
+    FOREACH_PARAM_BEGIN (Symbol &s, inst()) {
         if (param_never_used(s) && s.has_init_ops()) {
             turn_into_nop (s.initbegin(), s.initend(),
                            "remove init ops of unused param");
@@ -1388,6 +1393,7 @@ RuntimeOptimizer::remove_unused_params ()
                 std::cout << "Realized that param " << s.name() << " is not needed\n";
         }
     }
+    FOREACH_PARAM_END
 
     // Get rid of the Connections themselves
     erase_if (inst()->connections(), param_never_used);
@@ -1418,10 +1424,11 @@ RuntimeOptimizer::optimize_instance ()
 #ifdef DEBUG
     // Confirm that the symbols between [firstparam,lastparam] are all
     // input or output params.
-    FOREACH_PARAM (const Symbol &s, inst()) {
+    FOREACH_PARAM_BEGIN (const Symbol &s, inst()) {
         ASSERT (s.symtype() == SymTypeParam ||
                 s.symtype() == SymTypeOutputParam);
     }
+    FOREACH_PARAM_END
 #endif
 
     // Recompute which of our params have downstream connections.
@@ -2049,8 +2056,9 @@ RuntimeOptimizer::collapse_syms ()
 
     // Mark our params that feed to later layers, so that unused params
     // that aren't needed downstream can be removed.
-    FOREACH_PARAM (Symbol &s, inst())
+    FOREACH_PARAM_BEGIN (Symbol &s, inst())
         s.connected_down (false);
+    FOREACH_PARAM_END
     for (int lay = m_layer+1;  lay < m_group.nlayers();  ++lay) {
         BOOST_FOREACH (Connection &c, m_group[lay]->m_connections)
             if (c.srclayer == m_layer)
@@ -2125,10 +2133,11 @@ RuntimeOptimizer::collapse_syms ()
 #ifdef DEBUG
     // Confirm that the symbols between [firstparam,lastparam] are all
     // input or output params.
-    FOREACH_PARAM (const Symbol &s, inst()) {
+    FOREACH_PARAM_BEGIN (const Symbol &s, inst()) {
         ASSERT (s.symtype() == SymTypeParam ||
                 s.symtype() == SymTypeOutputParam);
     }
+    FOREACH_PARAM_END
 #endif
 }
 
@@ -2167,7 +2176,7 @@ RuntimeOptimizer::collapse_ops ()
     // Adjust 'main' code range and init op ranges
     inst()->m_maincodebegin = op_remap[inst()->m_maincodebegin];
     inst()->m_maincodeend = (int)new_ops.size();
-    FOREACH_PARAM (Symbol &s, inst()) {
+    FOREACH_PARAM_BEGIN (Symbol &s, inst()) {
         if (s.has_init_ops()) {
             s.initbegin (op_remap[s.initbegin()]);
             if (s.initend() < (int)op_remap.size())
@@ -2176,6 +2185,7 @@ RuntimeOptimizer::collapse_ops ()
                 s.initend ((int)new_ops.size());
         }
     }
+    FOREACH_PARAM_END
 
     // Swap the new code for the old.
     std::swap (inst()->m_instops, new_ops);
