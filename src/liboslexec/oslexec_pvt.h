@@ -454,18 +454,6 @@ public:
     int firstparam () const { return m_firstparam; }
     int lastparam () const { return m_lastparam; }
 
-    /// Return a begin/end Symbol* pair for the set of param symbols
-    /// that is suitable to pass as a range for BOOST_FOREACH.
-    friend std::pair<Symbol *,Symbol *> param_range (ShaderInstance *i) {
-        return std::pair<Symbol*,Symbol*> (i->symbol(i->firstparam()),
-                                           i->symbol(i->lastparam()));
-    }
-
-    friend std::pair<const Symbol *,const Symbol *> param_range (const ShaderInstance *i) {
-        return std::pair<const Symbol*,const Symbol*> (i->symbol(i->firstparam()),
-                                                       i->symbol(i->lastparam()));
-    }
-
     int Psym () const { return m_Psym; }
     int Nsym () const { return m_Nsym; }
 
@@ -540,10 +528,12 @@ private:
 /// with each iteration providing a Symbol& to symbolref.  Use like this:
 ///        FOREACH_PARAM (Symbol &s, inst) { ... stuff with s... }
 ///
-#define FOREACH_PARAM(symboldecl,inst) \
-    BOOST_FOREACH (symboldecl, param_range(inst))
 
+#define FOREACH_PARAM_BEGIN(symboldecl,inst) \
+	for(int pi = inst->firstparam(); pi < inst->lastparam(); pi++) { \
+		symboldecl = *(inst->symbol(pi));
 
+#define FOREACH_PARAM_END }
 
 /// A ShaderGroup consists of one or more layers (each of which is a
 /// ShaderInstance), and the connections among them.
