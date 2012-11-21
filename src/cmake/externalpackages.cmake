@@ -248,9 +248,16 @@ if(NOT LLVM_VERSION)
 	set(LLVM_VERSION "3.0")
 endif()
 
-FIND_PROGRAM(LLVM_CONFIG llvm-config-${LLVM_VERSION} HINTS ${LLVM_DIRECTORY})
-if(NOT LLVM_CONFIG)
-	FIND_PROGRAM(LLVM_CONFIG llvm-config HINTS ${LLVM_DIRECTORY})
+if(LLVM_DIRECTORY)
+	FIND_PROGRAM(LLVM_CONFIG llvm-config-${LLVM_VERSION} HINTS ${LLVM_DIRECTORY}/bin NO_CMAKE_PATH)
+	if(NOT LLVM_CONFIG)
+		FIND_PROGRAM(LLVM_CONFIG llvm-config HINTS ${LLVM_DIRECTORY}/bin NO_CMAKE_PATH)
+	endif()
+else()
+	FIND_PROGRAM(LLVM_CONFIG llvm-config-${LLVM_VERSION})
+	if(NOT LLVM_CONFIG)
+		FIND_PROGRAM(LLVM_CONFIG llvm-config)
+	endif()
 endif()
 
 if(NOT LLVM_DIRECTORY OR EXISTS ${LLVM_CONFIG})
@@ -268,6 +275,8 @@ if(NOT LLVM_DIRECTORY OR EXISTS ${LLVM_CONFIG})
 			 OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif()
 
+# Note: Shared llvm library may not be available...
+#       This is not an error if we use LLVM_STATIC.
 find_library ( LLVM_LIBRARY
                NAMES LLVM-${LLVM_VERSION}
                PATHS ${LLVM_LIB_DIR})
@@ -277,7 +286,7 @@ message (STATUS "LLVM includes = ${LLVM_INCLUDES}")
 message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
 message (STATUS "LLVM lib dir  = ${LLVM_LIB_DIR}")
 
-if (LLVM_LIBRARY AND LLVM_INCLUDES AND LLVM_DIRECTORY AND LLVM_LIB_DIR)
+if ((LLVM_LIBRARY OR LLVM_STATIC) AND LLVM_INCLUDES AND LLVM_DIRECTORY AND LLVM_LIB_DIR)
   # ensure include directory is added (in case of non-standard locations
   include_directories (BEFORE "${LLVM_INCLUDES}")
   string (REGEX REPLACE "\\." "" OSL_LLVM_VERSION ${LLVM_VERSION})
@@ -289,13 +298,14 @@ if (LLVM_LIBRARY AND LLVM_INCLUDES AND LLVM_DIRECTORY AND LLVM_LIB_DIR)
     # way for LLVM_LIBRARY.
     execute_process (COMMAND ${LLVM_CONFIG} --libfiles
                      OUTPUT_VARIABLE LLVM_LIBRARY
-   	                 OUTPUT_STRIP_TRAILING_WHITESPACE)
+                     OUTPUT_STRIP_TRAILING_WHITESPACE)
     string (REPLACE " " ";" LLVM_LIBRARY ${LLVM_LIBRARY})
   endif ()
   message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
-else ()
-  message (FATAL_ERROR "LLVM not found.")
 endif ()
+if (NOT LLVM_LIBRARY)
+  message (FATAL_ERROR "LLVM not found.")
+endif()
 
 # end LLVM library setup
 ###########################################################################
