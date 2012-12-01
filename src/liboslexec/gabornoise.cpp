@@ -35,6 +35,10 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <OpenImageIO/fmath.h>
 
+#ifndef _WIN32
+using OIIO::isfinite;
+#endif
+
 OSL_NAMESPACE_ENTER
 
 namespace pvt {
@@ -59,15 +63,15 @@ public:
     // seed based on the cell containing P
     fast_rng (const Vec3 &p, int seed=0) {
         // Use guts of cellnoise
-        unsigned int pi[4] = { quick_floor(p[0]), quick_floor(p[1]),
-                               quick_floor(p[2]), seed };
+        unsigned int pi[4] = { (unsigned int)quick_floor(p[0]), (unsigned int)quick_floor(p[1]),
+                               (unsigned int)quick_floor(p[2]), (unsigned int)seed };
         m_seed = inthash<4>(pi);
         if (! m_seed)
             m_seed = 1;
     }
     // Return uniform on [0,1)
     float operator() () {
-        return (m_seed *= 3039177861) / float(UINT_MAX);
+        return (m_seed *= 3039177861U) / float(UINT_MAX);
     }
     // Return poisson distribution with the given mean
     int poisson (float mean) {

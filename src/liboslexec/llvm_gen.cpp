@@ -3118,7 +3118,14 @@ LLVMGEN (llvm_gen_pointcloud_write)
     Symbol& Pos      = *rop.opargsym (op, 2);
     DASSERT (Result.typespec().is_int() && Filename.typespec().is_string() &&
              Pos.typespec().is_triple());
+#ifdef __GNU__
+    /* DASSERTMSG is written to use MSVC argument list,
+     * need to be ported to GCC in OIIO before we can use it
+     */
+    DASSERT (op.nargs() & 1);
+#else
     DASSERTMSG (op.nargs() & 1, "must have an even number of attribs");
+#endif
 
     int nattrs = (op.nargs() - 3) / 2;
     llvm::Value *nattrs_val = rop.llvm_constant (nattrs);
