@@ -34,6 +34,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ///
 /////////////////////////////////////////////////////////////////////////
 
+#include <OpenImageIO/fmath.h>
 
 #include <iostream>
 #include <cmath>
@@ -41,6 +42,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "oslexec_pvt.h"
 #include "dual.h"
 
+#ifdef _WIN32
+using OIIO::expm1;
+#endif
 
 OSL_NAMESPACE_ENTER
 namespace pvt {
@@ -500,8 +504,6 @@ OSL_SHADEOP void osl_luminance_dfdv (void *sg, void *out, void *c)
     ((float *)out)[1] = ctx->shadingsys().luminance (((const Color3 *)c)[1]);
     ((float *)out)[2] = ctx->shadingsys().luminance (((const Color3 *)c)[2]);
 }
-
-
 
 }; // namespace pvt
 OSL_NAMESPACE_EXIT

@@ -167,3 +167,8 @@ osl_getmessage (ShaderGlobals *sg, const char *source_, const char *name_,
     return 0;
 }
 
+
+void dummy_osl_shadeop_osl_message()
+{
+}
+

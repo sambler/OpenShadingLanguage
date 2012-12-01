@@ -441,7 +441,9 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr, ASTNode *index)
     else if (expr->typespec().is_triple()) // component access
         m_typespec = TypeDesc::FLOAT;
     else {
-        ASSERT (0 && "botched ASTindex");
+        if (!oslcompiler->error_encountered()) {
+            ASSERT (0 && "botched ASTindex");
+        }
     }
 }
 
@@ -459,7 +461,9 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr,
              expr->typespec().elementtype().is_triple())
         m_typespec = TypeDesc::FLOAT;
     else {
-        ASSERT (0 && "botched ASTindex");
+        if (!oslcompiler->error_encountered()) {
+            ASSERT (0 && "botched ASTindex");
+        }
     }
 }
 
@@ -475,7 +479,9 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr, ASTNode *index,
              expr->typespec().elementtype().is_matrix())
         m_typespec = TypeDesc::FLOAT;
     else {
-        ASSERT (0 && "botched ASTindex");
+        if (!oslcompiler->error_encountered()) {
+            ASSERT (0 && "botched ASTindex");
+        }
     }
 }
 
@@ -582,7 +588,9 @@ ASTstructselect::find_structsym (ASTNode *structnode, ustring &structname,
         structtype.make_array (0);  // clear its arrayness
     }
     else {
-        ASSERT (0 && "Malformed ASTstructselect");
+        if (!oslcompiler->error_encountered()) {
+            ASSERT (0 && "Malformed ASTstructselect");
+        }
     }
 }
 
@@ -888,6 +896,11 @@ ASTfunction_call::ASTfunction_call (OSLCompilerImpl *comp, ustring name,
         error ("function '%s' was not declared in this scope", name.c_str());
         // FIXME -- would be fun to troll through the symtab and try to
         // find the things that almost matched and offer suggestions.
+        return;
+    }
+    if (m_sym->symtype() != SymTypeFunction) {
+        error ("'%s' is not a function", name.c_str());
+        return;
     }
 }
 

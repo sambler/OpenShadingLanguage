@@ -266,6 +266,8 @@ static const char *llvm_helper_function_table[] = {
     "osl_getmessage", "iXssLXiisi",
     "osl_pointcloud_search", "iXsXfiiXXii*",
     "osl_pointcloud_get", "iXsXisLX",
+    "osl_pointcloud_write", "iXsXiXXX",
+    "osl_pointcloud_write_helper", "xXXXisLX",
     "osl_blackbody_vf", "xXXf",
     "osl_wavelength_color_vf", "xXXf",
     "osl_luminance_fv", "xXXX",
@@ -352,6 +354,9 @@ static const char *llvm_helper_function_table[] = {
     "osl_transformn_vmv", "xXXX",
     "osl_transformn_dvmdv", "xXXX",
 
+    "osl_transform_triple", "iXXiXiXXi",
+    "osl_transform_triple_nonlinear", "iXXiXiXXi",
+
     "osl_mul_mm", "xXXX",
     "osl_mul_mf", "xXXf",
     "osl_mul_m_ff", "xXff",
@@ -394,6 +399,9 @@ static const char *llvm_helper_function_table[] = {
     "osl_texture_set_swrap", "xXs",
     "osl_texture_set_twrap", "xXs",
     "osl_texture_set_rwrap", "xXs",
+    "osl_texture_set_swrap_code", "xXi",
+    "osl_texture_set_twrap_code", "xXi",
+    "osl_texture_set_rwrap_code", "xXs",
     "osl_texture_set_sblur", "xXf",
     "osl_texture_set_tblur", "xXf",
     "osl_texture_set_rblur", "xXf",
@@ -432,6 +440,8 @@ static const char *llvm_helper_function_table[] = {
     "osl_raytype_name", "iXX",
     "osl_raytype_bit", "iXi",
     "osl_bind_interpolated_param", "iXXLiX",
+	"osl_range_check", "iiiXXi",
+	"osl_naninf_check", "xiXiXXiX",
 #endif // OSL_LLVM_NO_BITCODE
 
     NULL
@@ -517,7 +527,7 @@ RuntimeOptimizer::llvm_type_groupdata ()
         ShaderInstance *inst = m_group[layer];
         if (inst->unused())
             continue;
-        FOREACH_PARAM (Symbol &sym, inst) {
+        FOREACH_PARAM_BEGIN (Symbol &sym, inst) {
             TypeSpec ts = sym.typespec();
             if (ts.is_structure())  // skip the struct symbol itself
                 continue;
@@ -542,6 +552,7 @@ RuntimeOptimizer::llvm_type_groupdata ()
             m_param_order_map[&sym] = order;
             ++order;
         }
+        FOREACH_PARAM_END
     }
     m_group.llvm_groupdata_size (offset);
 
@@ -813,7 +824,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
             ShaderInstance *gi = group()[i];
             if (gi->unused())
                 continue;
-            FOREACH_PARAM (Symbol &sym, gi) {
+            FOREACH_PARAM_BEGIN (Symbol &sym, gi) {
                if (sym.typespec().is_closure_based()) {
                     int arraylen = std::max (1, sym.typespec().arraylength());
                     llvm::Value *val = llvm_constant_ptr(NULL, llvm_type_void_ptr());
@@ -823,6 +834,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
                     }
                 }
             }
+            FOREACH_PARAM_END
             // Unconditionally execute earlier layers that are not lazy
             if (! gi->run_lazily() && i < group().nlayers()-1)
                 llvm_call_layer (i, true /* unconditionally run */);
@@ -863,7 +875,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     }
     // make a second pass for the parameters (which may make use of
     // locals and constants from the first pass)
-    FOREACH_PARAM (Symbol &s, inst()) {
+    FOREACH_PARAM_BEGIN (Symbol &s, inst()) {
         // Skip structure placeholders
         if (s.typespec().is_structure())
             continue;
@@ -873,6 +885,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
         // Set initial value for params (may contain init ops)
         llvm_assign_initial_value (s);
     }
+    FOREACH_PARAM_END
 
     // All the symbols are stack allocated now.
 
@@ -1002,9 +1015,19 @@ public:
 void
 RuntimeOptimizer::build_llvm_group ()
 {
+
     // At this point, we already hold the lock for this group, by virtue
     // of ShadingSystemImpl::optimize_group.
     OIIO::Timer timer;
+    std::string err;
+
+#ifdef OSL_LLVM_NO_BITCODE
+    /* I don't know which excat part has thread safety issues, but it
+     * crashes on windows when we don't lock */
+    {
+    static spin_mutex mutex;
+    OIIO::spin_lock lock (mutex);
+#endif
 
     if (! m_thread->llvm_context)
         m_thread->llvm_context = new llvm::LLVMContext();
@@ -1016,13 +1039,12 @@ RuntimeOptimizer::build_llvm_group ()
     }
 
     ASSERT (! m_llvm_module);
+#ifdef OSL_LLVM_NO_BITCODE
+    m_llvm_module = new llvm::Module("llvm_ops", *m_thread->llvm_context);
+#else
     // Load the LLVM bitcode and parse it into a Module
     const char *data = osl_llvm_compiled_ops_block;
     llvm::MemoryBuffer* buf = llvm::MemoryBuffer::getMemBuffer (llvm::StringRef(data, osl_llvm_compiled_ops_size));
-    std::string err;
-#ifdef OSL_LLVM_NO_BITCODE
-    m_llvm_module = new llvm::Module("llvm_ops", *llvm_context());
-#else
     // Load the LLVM bitcode and parse it into a Module
     m_llvm_module = llvm::ParseBitcodeFile (buf, *m_thread->llvm_context, &err);
     if (err.length())
@@ -1045,6 +1067,11 @@ RuntimeOptimizer::build_llvm_group ()
     // will be stealing the JIT code memory from under its nose and
     // destroying the Module & ExecutionEngine.
     m_llvm_exec->DisableLazyCompilation ();
+
+#ifdef OSL_LLVM_NO_BITCODE
+    /* end of mutex lock */
+    }
+#endif
 
     m_stat_llvm_setup_time += timer.lap();
 

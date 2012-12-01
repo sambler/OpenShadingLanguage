@@ -26,6 +26,7 @@ THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
+#include <iostream>
 #include <cmath>
 
 #include "oslexec_pvt.h"
@@ -73,5 +74,9 @@ osl_closure_to_string (ShaderGlobals *sg, ClosureColor *c)
     std::stringstream stream;
     print_closure(stream, c, &sg->context->shadingsys());
     return ustring(stream.str ()).c_str();
+}
+
+void dummy_osl_shadeop_osl_closure()
+{
 }
 

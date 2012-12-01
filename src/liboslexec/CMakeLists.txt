@@ -26,8 +26,10 @@ if (NOT BUILDSTATIC)
         ../liboslcomp/codegen.cpp
         ../liboslcomp/oslcomp.cpp
         ../liboslcomp/symtab.cpp
-        ../liboslcomp/typecheck.cpp
-        )
+          ../liboslcomp/typecheck.cpp
+    )
+
+    add_definitions ( -Doslcomp_EXPORTS)
 endif ()
 
 
@@ -118,28 +120,28 @@ if (BUILDSTATIC)
 
     add_definitions(-DBUILD_STATIC=1)
 else ()
-    ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
-    TARGET_LINK_LIBRARIES ( oslexec
-                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                            ${OPENIMAGEIO_LIBRARY}
-                            ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
-    ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
-    LINK_ILMBASE ( oslexec )
+ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
+TARGET_LINK_LIBRARIES ( oslexec
+                        ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
+                        ${OPENIMAGEIO_LIBRARY}
+                        ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
+                        ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
+LINK_ILMBASE ( oslexec )
     SET_TARGET_PROPERTIES(oslexec PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
 
-    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
+    INSTALL ( TARGETS oslexec DESTINATION lib )
 endif ()
 
 
 # Unit tests
 if (BUILD_TESTING)
-    add_executable (closure_test closure_test.cpp)
-    add_executable (accum_test accum_test.cpp)
-    target_link_libraries ( closure_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-    target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-    link_ilmbase (closure_test)
-    link_ilmbase (accum_test)
-    add_test (unit_closure ${CMAKE_BINARY_DIR}/liboslexec/closure_test)
-    add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)
+add_executable (closure_test closure_test.cpp)
+add_executable (accum_test accum_test.cpp)
+target_link_libraries ( closure_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+link_ilmbase (closure_test)
+link_ilmbase (accum_test)
+add_test (unit_closure ${CMAKE_BINARY_DIR}/liboslexec/closure_test)
+add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)
 endif ()

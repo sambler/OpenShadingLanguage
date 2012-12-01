@@ -119,3 +119,8 @@ osl_warning (ShaderGlobals *sg, const char* format_str, ...)
     va_end (args);
     sg->context->shadingsys().warning (s);
 }
+
+void dummy_osl_shadeop_osl_string()
+{
+}
+

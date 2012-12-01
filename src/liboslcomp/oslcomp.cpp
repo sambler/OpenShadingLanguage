@@ -152,9 +152,16 @@ preprocess (const std::string &filename,
         }
 
         instream.unsetf (std::ios::skipws);
-        std::string instring = OIIO::Strutil::format("#include \"%s\"\n", stdinclude)
-            + std::string (std::istreambuf_iterator<char>(instream.rdbuf()),
+        std::string instring;
+
+	if (!stdinclude.empty())
+		instring = OIIO::Strutil::format("#include \"%s\"\n", stdinclude.c_str());
+	else
+		instring = "\n";
+
+	instring += std::string (std::istreambuf_iterator<char>(instream.rdbuf()),
                            std::istreambuf_iterator<char>());
+
         instream.close ();
 
         typedef boost::wave::cpplexer::lex_token<> token_type;
@@ -281,10 +288,8 @@ preprocess (const std::string &filename,
         fb.close ();
     }
 
-    if (cpppipe)
-        pclose (cpppipe);
-
-    return true;
+    // Test for error in exit status
+    return (pclose(cpppipe) == 0);
 }
 
 #endif
@@ -315,30 +320,30 @@ OSLCompilerImpl::compile (const std::string &filename,
     // Determine where the installed shader include directory is, and
     // look for ../shaders/stdosl.h and force it to include.
     if (stdoslpath.empty()) {
-        std::string program = OIIO::Sysutil::this_program_path ();
-        if (program.size()) {
-            boost::filesystem::path path (program);  // our program
+    std::string program = OIIO::Sysutil::this_program_path ();
+    if (program.size()) {
+        boost::filesystem::path path (program);  // our program
             boost::filesystem::path path2; // default shader install
-            path = path.parent_path ();  // now the bin dir of our program
-            path = path.parent_path ();  // now the parent dir
+        path = path.parent_path ();  // now the bin dir of our program
+        path = path.parent_path ();  // now the parent dir
             path2 = path; // copy path from this point (live will be /usr/local)
-            path = path / "shaders";
-            bool found = false;
-            if (OIIO::Filesystem::exists (path.string())) {
+        path = path / "shaders";
+        bool found = false;
+        if (OIIO::Filesystem::exists (path.string())) {
 #ifdef USE_BOOST_WAVE
-                includepaths.push_back(path.string());
+            includepaths.push_back(path.string());
 #else
-                // pass along to cpp
-                cppoptions += "\"-I";
-                cppoptions += path.string();
-                cppoptions += "\" ";
+            // pass along to cpp
+            cppoptions += "\"-I";
+            cppoptions += path.string();
+            cppoptions += "\" ";
 #endif
-                path = path / "stdosl.h";
-                if (OIIO::Filesystem::exists (path.string())) {
-                    stdinclude = path.string();
-                    found = true;
-                }
+            path = path / "stdosl.h";
+            if (OIIO::Filesystem::exists (path.string())) {
+                stdinclude = path.string();
+                found = true;
             }
+        }
             if (! found) {
                 // FreeBSD fix - shaders are installed into /usr/local/share/openshadinglanguage/shaders
                 // add this path to the search list to prevent manually adding it with -I every time
@@ -359,10 +364,10 @@ OSLCompilerImpl::compile (const std::string &filename,
                     }
                 }
             }
-            if (! found)
-                warning (ustring(filename), 0, "Unable to find \"%s\"",
-                         path.string().c_str());
-        }
+        if (! found)
+            warning (ustring(filename), 0, "Unable to find \"%s\"",
+                     path.string().c_str());
+    }
     }
     else
         stdinclude = stdoslpath;
@@ -428,7 +433,10 @@ OSLCompilerImpl::compile (const std::string &filename,
         delete m_lexer;
 
         if (! parseerr) {
+            if (shader())
             shader()->typecheck ();
+            else
+                error (ustring(), 0, "No shader function defined");
         }
 
         // Print the parse tree if there were no errors
@@ -471,31 +479,31 @@ struct GlobalTable {
 void
 OSLCompilerImpl::initialize_globals ()
 {
-    static GlobalTable globals[] = {
-        { "P", TypeDesc::TypePoint },
-        { "I", TypeDesc::TypeVector },
-        { "N", TypeDesc::TypeNormal },
-        { "Ng", TypeDesc::TypeNormal },
-        { "u", TypeDesc::TypeFloat },
-        { "v", TypeDesc::TypeFloat },
-        { "dPdu", TypeDesc::TypeVector },
-        { "dPdv", TypeDesc::TypeVector },
-    #if 0
-        // Light variables -- we don't seem to be on a route to support this
-        // kind of light shader, so comment these out for now.
-        { "L", TypeDesc::TypeVector },
-        { "Cl", TypeDesc::TypeColor },
-        { "Ns", TypeDesc::TypeNormal },
-        { "Pl", TypeDesc::TypePoint },
-        { "Nl", TypeDesc::TypeNormal },
-    #endif
-        { "Ps", TypeDesc::TypePoint },
-        { "Ci", TypeSpec (TypeDesc::TypeColor, true) },
-        { "time", TypeDesc::TypeFloat },
-        { "dtime", TypeDesc::TypeFloat },
-        { "dPdtime", TypeDesc::TypeVector },
-        { NULL }
-    };
+static GlobalTable globals[] = {
+    { "P", TypeDesc::TypePoint },
+    { "I", TypeDesc::TypeVector },
+    { "N", TypeDesc::TypeNormal },
+    { "Ng", TypeDesc::TypeNormal },
+    { "u", TypeDesc::TypeFloat },
+    { "v", TypeDesc::TypeFloat },
+    { "dPdu", TypeDesc::TypeVector },
+    { "dPdv", TypeDesc::TypeVector },
+#if 0
+    // Light variables -- we don't seem to be on a route to support this
+    // kind of light shader, so comment these out for now.
+    { "L", TypeDesc::TypeVector },
+    { "Cl", TypeDesc::TypeColor },
+    { "Ns", TypeDesc::TypeNormal },
+    { "Pl", TypeDesc::TypePoint },
+    { "Nl", TypeDesc::TypeNormal },
+#endif
+    { "Ps", TypeDesc::TypePoint },
+    { "Ci", TypeSpec (TypeDesc::TypeColor, true) },
+    { "time", TypeDesc::TypeFloat },
+    { "dtime", TypeDesc::TypeFloat },
+    { "dPdtime", TypeDesc::TypeVector },
+    { NULL }
+};
 
     for (int i = 0;  globals[i].name;  ++i) {
         Symbol *s = new Symbol (ustring(globals[i].name), globals[i].type,
