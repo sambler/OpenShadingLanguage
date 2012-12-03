@@ -1806,7 +1806,7 @@ example:
 in a matrix with diagonal components all being $x$ and other
 components being zero (i.e., $x$ times the identity matrix).
 Constructing a matrix with 16 floats will create the matrix whose
-components are those floats, in row-major order.  
+components are those floats, in column-major order.  
 
 Similar to point-like types, a {\cf matrix} may be constructed in
 reference to a named space:
@@ -3164,7 +3164,7 @@ it is assumed to be transforming from \rgbspace.
 \bigspc\spc float m20, float m21, float m22, float m23, \\
 \bigspc\spc float m30, float m31, float m32, float m33)}
 \indexapi{matrix()}
-Constructs a \matrix from 16 individual \float values, in row-major
+Constructs a \matrix from 16 individual \float values, in column-major
 order.  
 \apiend
 
