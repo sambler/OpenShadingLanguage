@@ -76,6 +76,11 @@ if (CMAKE_COMPILER_IS_GNUCC AND GCC_VERSION VERSION_LESS 4.3)
     add_definitions ("-DBOOST_NO_TYPEID")
 endif ()
 
+#If we are using static libraries this is essential to avoid linking errors 
+if(MINGW AND Boost_USE_STATIC_LIBS)
+	add_definitions("-DBOOST_ALL_NO_LIB -DBOOST_THREAD_USE_LIB")
+endif()
+
 if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
     # CMake doesn't automatically know what do do with
     # include_directories(SYSTEM...) when using clang or gcc.

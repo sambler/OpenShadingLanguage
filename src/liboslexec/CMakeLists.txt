@@ -32,6 +32,10 @@ if (NOT BUILDSTATIC)
     add_definitions ( -Doslcomp_EXPORTS)
 endif ()
 
+SET (LINK_PLATFORM "")
+if(MINGW)
+	SET (LINK_PLATFORM "-lpthread")
+endif()
 
 include_directories ( ${CMAKE_SOURCE_DIR}/liboslcomp )
 
@@ -96,7 +100,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
 ENDMACRO ( )
 
-if (NOT MSVC)
+if (NOT MSVC AND NOT MINGW)
     LLVM_COMPILE ( llvm_ops.cpp liboslexec_srcs )
 else ()
     # With MSVC, we don't compile llvm_ops.cpp to LLVM bitcode, due to
@@ -112,7 +116,7 @@ if (BUILDSTATIC)
                             ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                             ${OPENIMAGEIO_LIBRARY}
                             ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} ${LINK_PLATFORM})
     ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
     LINK_ILMBASE ( oslexec )
 
@@ -125,7 +129,7 @@ else ()
                             ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                             ${OPENIMAGEIO_LIBRARY}
                             ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} ${LINK_PLATFORM})
     ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
     LINK_ILMBASE ( oslexec )
     SET_TARGET_PROPERTIES(oslexec PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)

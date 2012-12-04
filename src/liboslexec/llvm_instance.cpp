@@ -28,6 +28,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cmath>
 #include <cstddef> // FIXME: OIIO's timer.h depends on NULL being defined and should include this itself
+#ifdef __MINGW32__
+#include <malloc.h> /* for alloca */
+#endif
 
 #include <OpenImageIO/timer.h>
 
