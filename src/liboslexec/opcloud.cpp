@@ -27,6 +27,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 */
 
 #include "oslexec_pvt.h"
+#ifdef __MINGW32__
+#include <malloc.h> /* for alloca */
+#endif
 
 inline ustring USTR(const char *cstr) { return (*((const ustring *)&cstr)); }
 inline TypeDesc TYPEDESC(long long x) { return (*(const TypeDesc *)&x); }

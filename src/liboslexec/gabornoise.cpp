@@ -38,6 +38,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #ifndef _WIN32
 using OIIO::isfinite;
 #endif
+#ifdef __MINGW32__
+using std::isfinite;
+#endif
 
 OSL_NAMESPACE_ENTER
 

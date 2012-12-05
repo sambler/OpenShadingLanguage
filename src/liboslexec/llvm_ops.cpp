@@ -110,6 +110,11 @@ using OIIO::safe_acosf;
 using OIIO::isinf;
 
 #ifdef _WIN32
+# ifdef __MINGW32__
+/* OpenImageIO usually uses these for gcc systems */
+using std::isnan;
+using std::isfinite;
+# else
 using OIIO::roundf;
 using OIIO::truncf;
 using OIIO::expm1f;
@@ -118,6 +123,7 @@ using OIIO::erfcf;
 using OIIO::log2f;
 using OIIO::logbf;
 using OIIO::exp2f;
+# endif
 #else
 using OIIO::isnan;
 using OIIO::isfinite;
