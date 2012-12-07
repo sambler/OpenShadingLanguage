@@ -104,6 +104,10 @@ using namespace OSL::pvt;
 
 #ifdef _WIN32
 #define YY_NO_UNISTD_H
+
+#ifdef _MSC_VER
+#define strtoll _strtoi64
+#endif
 #endif
 
 void preprocess (const char *yytext);
@@ -177,7 +181,11 @@ void preprocess (const char *yytext);
 
  /* Literal values */
 {INTEGER}               {
-                            yylval.i = atoi (YYText());
+                            // atoi() will handle overflow different on windows
+                            // and 32/64 bit systems. here we emulate 64 bit
+                            // linux atoi() for compatibility, which will parse
+                            // as (64 bit) long and then cast to int
+                            yylval.i = (int)strtoll (YYText(), (char**)NULL, 10);
                             SETLINE;
                             return INT_LITERAL;
                         }
