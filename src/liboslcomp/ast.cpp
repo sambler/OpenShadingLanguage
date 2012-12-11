@@ -441,9 +441,7 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr, ASTNode *index)
     else if (expr->typespec().is_triple()) // component access
         m_typespec = TypeDesc::FLOAT;
     else {
-        if (!oslcompiler->error_encountered()) {
-            ASSERT (0 && "botched ASTindex");
-        }
+        error ("indexing into non-array or non-component type");
     }
 }
 
@@ -461,9 +459,7 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr,
              expr->typespec().elementtype().is_triple())
         m_typespec = TypeDesc::FLOAT;
     else {
-        if (!oslcompiler->error_encountered()) {
-            ASSERT (0 && "botched ASTindex");
-        }
+        error ("indexing into non-array or non-component type");
     }
 }
 
@@ -479,9 +475,7 @@ ASTindex::ASTindex (OSLCompilerImpl *comp, ASTNode *expr, ASTNode *index,
              expr->typespec().elementtype().is_matrix())
         m_typespec = TypeDesc::FLOAT;
     else {
-        if (!oslcompiler->error_encountered()) {
-            ASSERT (0 && "botched ASTindex");
-        }
+        error ("indexing into non-array or non-component type");
     }
 }
 
@@ -588,9 +582,7 @@ ASTstructselect::find_structsym (ASTNode *structnode, ustring &structname,
         structtype.make_array (0);  // clear its arrayness
     }
     else {
-        if (!oslcompiler->error_encountered()) {
-            ASSERT (0 && "Malformed ASTstructselect");
-        }
+        ASSERT (0 && "Malformed ASTstructselect");
     }
 }
 

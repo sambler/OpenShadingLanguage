@@ -726,6 +726,90 @@ LLVMGEN (llvm_gen_clamp)
 
 
 
+LLVMGEN (llvm_gen_mix)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    Symbol& Result = *rop.opargsym (op, 0);
+    Symbol& A = *rop.opargsym (op, 1);
+    Symbol& B = *rop.opargsym (op, 2);
+    Symbol& X = *rop.opargsym (op, 3);
+    TypeDesc type = Result.typespec().simpletype();
+    ASSERT (!Result.typespec().is_closure_based() &&
+            Result.typespec().is_floatbased());
+    int num_components = type.aggregate;
+    int x_components = X.typespec().aggregate();
+    bool derivs = (Result.has_derivs() &&
+                   (A.has_derivs() || B.has_derivs() || X.has_derivs()));
+
+    llvm::Value *one = rop.llvm_constant (1.0f);
+    llvm::Value *x = rop.llvm_load_value (X, 0, 0, type);
+    llvm::Value *one_minus_x = rop.builder().CreateFSub (one, x);
+    llvm::Value *xx = derivs ? rop.llvm_load_value (X, 1, 0, type) : NULL;
+    llvm::Value *xy = derivs ? rop.llvm_load_value (X, 2, 0, type) : NULL;
+    for (int i = 0; i < num_components; i++) {
+        llvm::Value *a = rop.llvm_load_value (A, 0, i, type);
+        llvm::Value *b = rop.llvm_load_value (B, 0, i, type);
+        if (!a || !b)
+            return false;
+        if (i > 0 && x_components > 1) {
+            // Only need to recompute x and 1-x if they change
+            x = rop.llvm_load_value (X, 0, i, type);
+            one_minus_x = rop.builder().CreateFSub (one, x);
+        }
+        // r = a*one_minus_x + b*x
+        llvm::Value *r1 = rop.builder().CreateFMul (a, one_minus_x);
+        llvm::Value *r2 = rop.builder().CreateFMul (b, x);
+        llvm::Value *r = rop.builder().CreateFAdd (r1, r2);
+        rop.llvm_store_value (r, Result, 0, i);
+
+        if (derivs) {
+            // mix of duals:
+            //   (a*one_minus_x + b*x, 
+            //    a*one_minus_x.dx + a.dx*one_minus_x + b*x.dx + b.dx*x,
+            //    a*one_minus_x.dy + a.dy*one_minus_x + b*x.dy + b.dy*x)
+            // and since one_minus_x.dx = -x.dx, one_minus_x.dy = -x.dy,
+            //   (a*one_minus_x + b*x, 
+            //    -a*x.dx + a.dx*one_minus_x + b*x.dx + b.dx*x,
+            //    -a*x.dy + a.dy*one_minus_x + b*x.dy + b.dy*x)
+            llvm::Value *ax = rop.llvm_load_value (A, 1, i, type);
+            llvm::Value *bx = rop.llvm_load_value (B, 1, i, type);
+            if (i > 0 && x_components > 1)
+                xx = rop.llvm_load_value (X, 1, i, type);
+            llvm::Value *rx1 = rop.builder().CreateFMul (a, xx);
+            llvm::Value *rx2 = rop.builder().CreateFMul (ax, one_minus_x);
+            llvm::Value *rx = rop.builder().CreateFSub (rx2, rx1);
+            llvm::Value *rx3 = rop.builder().CreateFMul (b, xx);
+            rx = rop.builder().CreateFAdd (rx, rx3);
+            llvm::Value *rx4 = rop.builder().CreateFMul (bx, x);
+            rx = rop.builder().CreateFAdd (rx, rx4);
+
+            llvm::Value *ay = rop.llvm_load_value (A, 2, i, type);
+            llvm::Value *by = rop.llvm_load_value (B, 2, i, type);
+            if (i > 0 && x_components > 1)
+                xy = rop.llvm_load_value (X, 2, i, type);
+            llvm::Value *ry1 = rop.builder().CreateFMul (a, xy);
+            llvm::Value *ry2 = rop.builder().CreateFMul (ay, one_minus_x);
+            llvm::Value *ry = rop.builder().CreateFSub (ry2, ry1);
+            llvm::Value *ry3 = rop.builder().CreateFMul (b, xy);
+            ry = rop.builder().CreateFAdd (ry, ry3);
+            llvm::Value *ry4 = rop.builder().CreateFMul (by, x);
+            ry = rop.builder().CreateFAdd (ry, ry4);
+
+            rop.llvm_store_value (rx, Result, 1, i);
+            rop.llvm_store_value (ry, Result, 2, i);
+        }
+    }
+
+    if (Result.has_derivs() && !derivs) {
+        // Result has derivs, operands do not
+        rop.llvm_zero_derivs (Result);
+    }
+        
+    return true;
+}
+
+
+
 // Implementation for min/max
 LLVMGEN (llvm_gen_minmax)
 {
@@ -1739,9 +1823,8 @@ LLVMGEN (llvm_gen_if)
     Symbol& cond = *rop.opargsym (op, 0);
 
     // Load the condition variable and figure out if it's nonzero
-    llvm::Value* cond_val = rop.llvm_load_value (cond, 0, 0, TypeDesc::TypeInt);
-    cond_val = rop.builder().CreateICmpNE (cond_val, rop.llvm_constant(0));
-    
+    llvm::Value* cond_val = rop.llvm_test_nonzero (cond);
+
     // Branch on the condition, to our blocks
     llvm::BasicBlock* then_block = rop.llvm_new_basic_block ("then");
     llvm::BasicBlock* else_block = rop.llvm_new_basic_block ("else");
@@ -1785,8 +1868,8 @@ LLVMGEN (llvm_gen_loop_op)
 
     // Load the condition variable and figure out if it's nonzero
     rop.build_llvm_code (op.jump(0), op.jump(1), cond_block);
-    llvm::Value* cond_val = rop.llvm_load_value (cond, 0, 0, TypeDesc::TypeInt);
-    cond_val = rop.builder().CreateICmpNE (cond_val, rop.llvm_constant(0));
+    llvm::Value* cond_val = rop.llvm_test_nonzero (cond);
+
     // Jump to either LoopBody or AfterLoop
     rop.builder().CreateCondBr (cond_val, body_block, after_block);
 
@@ -3123,14 +3206,7 @@ LLVMGEN (llvm_gen_pointcloud_write)
     Symbol& Pos      = *rop.opargsym (op, 2);
     DASSERT (Result.typespec().is_int() && Filename.typespec().is_string() &&
              Pos.typespec().is_triple());
-#if defined(__GNU__) || defined(__MINGW32__)
-    /* DASSERTMSG is written to use MSVC argument list,
-     * need to be ported to GCC in OIIO before we can use it
-     */
-    DASSERT (op.nargs() & 1);
-#else
-    DASSERTMSG (op.nargs() & 1, "must have an even number of attribs");
-#endif
+    DASSERT ((op.nargs() & 1) && "must have an even number of attribs");
 
     int nattrs = (op.nargs() - 3) / 2;
     llvm::Value *nattrs_val = rop.llvm_constant (nattrs);
@@ -3352,6 +3428,14 @@ LLVMGEN (llvm_gen_return)
     llvm::BasicBlock* next_block = rop.llvm_new_basic_block ("");
     rop.builder().SetInsertPoint (next_block);
     return true;
+}
+
+
+
+LLVMGEN (llvm_gen_end)
+{
+    // Dummy routine needed only for the op_descriptor table
+    return false;
 }
 
 

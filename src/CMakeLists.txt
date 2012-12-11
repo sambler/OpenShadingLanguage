@@ -50,8 +50,12 @@ if (NOT CMAKE_COMPILER_IS_CLANG)
 endif ()
 
 ## turn on more detailed warnings and consider warnings as errors
+set (STOP_ON_WARNING ON CACHE BOOL "Stop building if there are any compiler warnings")
 if (NOT MSVC)
-    add_definitions ("-Wall -Werror")
+    add_definitions ("-Wall")
+    if (STOP_ON_WARNING)
+        add_definitions ("-Werror")
+    endif ()
 endif ()
 
 ## disable RTTI
@@ -112,6 +116,7 @@ if (WIN32)
 else ()
     set (USE_BOOST_WAVE OFF CACHE BOOL "Use Boost Wave as preprocessor")
 endif ()
+set (USE_PARTIO ON CACHE BOOL "Use Partio if found")
 set (HIDE_SYMBOLS OFF CACHE BOOL "Hide symbols not in the public API")
 
 if (LLVM_NAMESPACE)
@@ -251,12 +256,13 @@ if (BUILD_TESTING)
                 geomath getsymbol-nonheap gettextureinfo hyperb
                 ieee_fp if incdec initops intbits
                 layers layers-Ciassign layers-lazy
-                logic loop matrix message miscmath missing-shader
+                logic loop matrix message metadata-braces miscmath missing-shader
                 noise noise-cell
                 noise-gabor noise-gabor2d-filter noise-gabor3d-filter
                 noise-perlin noise-uperlin
                 pnoise pnoise-cell pnoise-gabor pnoise-perlin pnoise-uperlin
                 oslc-err-noreturn oslc-err-paramdefault
+                pointcloud pointcloud-fold
                 raytype render-background render-bumptest render-cornell render-furnace-diffuse
                 render-microfacet render-oren-nayar render-veachmis render-ward
                 shortcircuit spline splineinverse string 
@@ -267,10 +273,10 @@ if (BUILD_TESTING)
                 texture-firstchannel texture-interp texture-simple
                 texture-smallderivs texture-swirl
                 texture-width texture-withderivs texture-wrap
-                transform transformc trig typecast vecctr vector
+                transform transformc trig typecast
+                unknown-instruction vecctr vector
                 wavelength_color xml )
 endif ()
-
 
 
 #########################################################################
@@ -287,7 +293,7 @@ set (CPACK_PACKAGE_FILE_NAME OSL-${OSL_LIBRARY_VERSION_MAJOR}.${OSL_LIBRARY_VERS
 #set (CPACK_PACKAGE_INSTALL_DIRECTORY ${PROJECT_SOURCE_DIR}/..)
 exec_program ("cmake -E copy ${PROJECT_SOURCE_DIR}/../LICENSE ${CMAKE_BINARY_DIR}/License.txt")
 set (CPACK_RESOURCE_FILE_LICENSE "${CMAKE_BINARY_DIR}/License.txt")
-exec_program ("cmake -E copy ${PROJECT_SOURCE_DIR}/../README ${CMAKE_BINARY_DIR}/Readme.txt")
+exec_program ("cmake -E copy ${PROJECT_SOURCE_DIR}/../README.md ${CMAKE_BINARY_DIR}/Readme.txt")
 set (CPACK_RESOURCE_FILE_README "${CMAKE_BINARY_DIR}/Readme.txt")
 set (CPACK_RESOURCE_FILE_WELCOME "${PROJECT_SOURCE_DIR}/doc/Welcome.txt")
 #set (CPACK_PACKAGE_EXECUTABLES I'm not sure what this is for)

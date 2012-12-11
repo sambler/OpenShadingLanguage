@@ -44,6 +44,7 @@
     OP (Dy,          DxDy,                none,          true);
     OP (Dz,          Dz,                  none,          true);
     OP (dowhile,     loop_op,             none,          false);
+    OP (end,         end,                 none,          false);
     OP (endswith,    generic,             endswith,      true);
     OP (environment, environment,         none,          true);
     OP (eq,          compare_op,          eq,            true);
@@ -84,6 +85,7 @@
     OP (mxcompassign, mxcompassign,       none,          false);
     OP (mxcompref,   mxcompref,           none,          true);
     OP (min,         minmax,              min,           true);
+    OP (mix,         mix,                 mix,           true);
     OP (mod,         modulus,             none,          true);
     OP (mul,         mul,                 mul,           true);
     OP (neg,         neg,                 neg,           true);
@@ -95,7 +97,7 @@
     OP (pnoise,      noise,               none,          true);
     OP (point,       construct_triple,    triple,        true);
     OP (pointcloud_search, pointcloud_search, pointcloud_search, false);
-    OP (pointcloud_get, pointcloud_get,   none,          false);
+    OP (pointcloud_get, pointcloud_get,   pointcloud_get,false);
     OP (pointcloud_write, pointcloud_write, none,        false);
     OP (pow,         generic,             pow,           true);
     OP (printf,      printf,              none,          false);

@@ -1,22 +1,22 @@
 SET ( liboslexec_srcs
           shadingsys.cpp closure.cpp
+          emissive.cpp background.cpp debug.cpp dictionary.cpp
+          vol_subsurface.cpp
+          context.cpp gabornoise.cpp instance.cpp 
+          loadshader.cpp master.cpp 
+          opcolor.cpp 
+          opmessage.cpp opnoise.cpp 
+          opspline.cpp opstring.cpp
+          oslexec.cpp osoreader.cpp
+          pointcloud.cpp rendservices.cpp runtimeoptimize.cpp typespec.cpp
+          lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
+          opclosure.cpp builtin_closures.cpp
+          llvm_gen.cpp llvm_instance.cpp llvm_util.cpp
           bsdf.cpp bsdf_diffuse.cpp bsdf_microfacet.cpp bsdf_phong.cpp
           bsdf_westin.cpp bsdf_ashikhmin_velvet.cpp
           bsdf_cloth_fncs.cpp bsdf_cloth.cpp bsdf_cloth_specular.cpp
           bsdf_reflection.cpp bsdf_refraction.cpp bsdf_transparent.cpp bsdf_ward.cpp
           bssrdf.cpp bsdf_hair.cpp bsdf_fakefur.cpp
-          emissive.cpp background.cpp debug.cpp dictionary.cpp
-          vol_subsurface.cpp
-          context.cpp gabornoise.cpp instance.cpp 
-          loadshader.cpp master.cpp 
-          opcolor.cpp opcloud.cpp
-          opmessage.cpp opnoise.cpp 
-          opspline.cpp opstring.cpp
-          oslexec.cpp osoreader.cpp
-          rendservices.cpp runtimeoptimize.cpp typespec.cpp
-          lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
-          opclosure.cpp builtin_closures.cpp
-          llvm_gen.cpp llvm_instance.cpp llvm_util.cpp
     )
 
 # oslcomp symbols used in oslexec
@@ -57,6 +57,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     SET ( ${srclist} ${${srclist}} ${llvm_bc_cpp} )
     EXEC_PROGRAM ( ${LLVM_DIRECTORY}/bin/llvm-config ARGS --cxxflags OUTPUT_VARIABLE LLVM_COMPILE_FLAGS )
     set (LLVM_COMPILE_FLAGS "${LLVM_COMPILE_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -O3 --combine")
+    LIST (APPEND LLVM_COMPILE_FLAGS "-I${ILMBASE_INCLUDE_DIR}")
     if (OSL_NAMESPACE)
         LIST (APPEND LLVM_COMPILE_FLAGS "-DOSL_NAMESPACE=${OSL_NAMESPACE}")
     endif ()
@@ -90,7 +91,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       -I${CMAKE_CURRENT_SOURCE_DIR}
       -I${CMAKE_SOURCE_DIR}/include
       -I${CMAKE_BINARY_DIR}/include
-      -I${OPENIMAGEIO_INCLUDES} -I${ILMBASE_INCLUDE_AREA}
+      -I${OPENIMAGEIO_INCLUDES} -I${ILMBASE_INCLUDE_DIR}
       -I${Boost_INCLUDE_DIRS} -I${TBB_INCLUDES} -O3 -S -emit-llvm -o ${llvm_asm} ${llvm_src}
 
       COMMAND ${LLVM_DIRECTORY}/bin/llvm-as -f -o ${llvm_bc} ${llvm_asm}
@@ -115,6 +116,7 @@ if (BUILDSTATIC)
     TARGET_LINK_LIBRARIES ( oslexec
                             ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                             ${OPENIMAGEIO_LIBRARY}
+                            ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
                             ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
                             ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} ${LINK_PLATFORM})
     ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
@@ -128,6 +130,7 @@ else ()
     TARGET_LINK_LIBRARIES ( oslexec
                             ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                             ${OPENIMAGEIO_LIBRARY}
+                            ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
                             ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
                             ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} ${LINK_PLATFORM})
     ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)

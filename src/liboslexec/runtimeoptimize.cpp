@@ -38,6 +38,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/regex.hpp>
 #include <boost/unordered_map.hpp>
 
+#include <OpenImageIO/sysutil.h>
 #include <OpenImageIO/timer.h>
 #include <OpenImageIO/thread.h>
 
@@ -54,7 +55,9 @@ static ustring u_nop    ("nop"),
                u_assign ("assign"),
                u_add    ("add"),
                u_sub    ("sub"),
+               u_mul    ("mul"),
                u_if     ("if"),
+               u_eq     ("eq"),
                u_break ("break"),
                u_continue ("continue"),
                u_return ("return"),
@@ -89,11 +92,12 @@ void erase_if (Container &c, const Predicate &p)
 
 
 RuntimeOptimizer::RuntimeOptimizer (ShadingSystemImpl &shadingsys,
-                                    ShaderGroup &group)
+                                    ShaderGroup &group, ShadingContext *ctx)
     : m_shadingsys(shadingsys),
       m_thread(shadingsys.get_perthread_info()),
       m_group(group),
-      m_inst(NULL),
+      m_inst(NULL), m_context(ctx),
+      m_pass(0),
       m_debug(shadingsys.debug()),
       m_optimize(shadingsys.optimize()),
       m_opt_constant_param(shadingsys.m_opt_constant_param),
@@ -104,7 +108,9 @@ RuntimeOptimizer::RuntimeOptimizer (ShadingSystemImpl &shadingsys,
       m_opt_peephole(shadingsys.m_opt_peephole),
       m_opt_coalesce_temps(shadingsys.m_opt_coalesce_temps),
       m_opt_assign(shadingsys.m_opt_assign),
-      m_next_newconst(0),
+      m_opt_mix(shadingsys.m_opt_mix),
+      m_opt_merge_instances(shadingsys.m_opt_merge_instances),
+      m_next_newconst(0), m_next_newtemp(0),
       m_stat_opt_locking_time(0), m_stat_specialization_time(0),
       m_stat_total_llvm_time(0), m_stat_llvm_setup_time(0),
       m_stat_llvm_irgen_time(0), m_stat_llvm_opt_time(0),
@@ -114,6 +120,8 @@ RuntimeOptimizer::RuntimeOptimizer (ShadingSystemImpl &shadingsys,
       m_llvm_passes(NULL), m_llvm_func_passes(NULL)
 {
     set_debug ();
+    memset (&m_shaderglobals, 0, sizeof(ShaderGlobals));
+    m_shaderglobals.context = m_context;
 }
 
 
@@ -165,6 +173,8 @@ RuntimeOptimizer::set_debug ()
             m_opt_peephole = true;
             m_opt_coalesce_temps = true;
             m_opt_assign = true;
+            m_opt_mix = true;
+            m_opt_merge_instances = true;
         }
     }
     // if user said to only debug one layer, turn off debug if not it
@@ -222,6 +232,47 @@ RuntimeOptimizer::add_constant (const TypeSpec &type, const void *data)
 
 
 
+int
+RuntimeOptimizer::add_temp (const TypeSpec &type)
+{
+    Symbol newtemp (ustring::format ("$opttemp%d", m_next_newtemp++),
+                    type, SymTypeTemp);
+    ASSERT (inst()->symbols().capacity() > inst()->symbols().size() &&
+            "we shouldn't have to realloc here");
+    inst()->symbols().push_back (newtemp);
+    return (int) inst()->symbols().size()-1;
+}
+
+
+
+void
+RuntimeOptimizer::turn_into_new_op (Opcode &op, ustring newop, int newarg1,
+                                    int newarg2, const char *why)
+{
+    int opnum = &op - &(inst()->ops()[0]);
+    DASSERT (opnum >= 0 && opnum < (int)inst()->ops().size());
+    if (debug() > 1)
+        std::cout << "turned op " << opnum
+                  << " from " << op.opname() << " to "
+                  << newop << ' ' << inst()->symbol(newarg1)->name() << ' '
+                  << (newarg2<0 ? "" : inst()->symbol(newarg2)->name().c_str())
+                  << (why ? " : " : "") << (why ? why : "") << "\n";
+    op.reset (newop, newarg2<0 ? 2 : 3);
+    op.argwriteonly (0);
+    inst()->args()[op.firstarg()+1] = newarg1;
+    op.argread (1, true);
+    op.argwrite (1, false);
+    opargsym(op, 1)->mark_rw (opnum, true, false);
+    if (newarg2 >= 0) {
+        inst()->args()[op.firstarg()+2] = newarg2;
+        op.argread (2, true);
+        op.argwrite (2, false);
+        opargsym(op, 2)->mark_rw (opnum, true, false);
+    }
+}
+
+
+
 void
 RuntimeOptimizer::turn_into_assign (Opcode &op, int newarg, const char *why)
 {
@@ -229,7 +280,8 @@ RuntimeOptimizer::turn_into_assign (Opcode &op, int newarg, const char *why)
     if (debug() > 1)
         std::cout << "turned op " << opnum
                   << " from " << op.opname() << " to "
-                  << opargsym(op,0)->name() << " = " << opargsym(op,1)->name()
+                  << opargsym(op,0)->name() << " = " 
+                  << inst()->symbol(newarg)->name()
                   << (why ? " : " : "") << (why ? why : "") << "\n";
     op.reset (u_assign, 2);
     inst()->args()[op.firstarg()+1] = newarg;
@@ -314,28 +366,27 @@ RuntimeOptimizer::turn_into_nop (int begin, int end, const char *why)
 
 
 
-/// Insert instruction 'opname' with arguments 'args_to_add' into the 
-/// code at instruction 'opnum'.  The existing code and concatenated 
-/// argument lists can be found in code and opargs, respectively, and
-/// allsyms contains pointers to all symbols.  mainstart is a reference
-/// to the address where the 'main' shader begins, and may be modified
-/// if the new instruction is inserted before that point.
-/// If recompute_rw_ranges is true, also adjust all symbols' read/write
-/// ranges to take the new instruction into consideration.
 void
 RuntimeOptimizer::insert_code (int opnum, ustring opname,
-                               const std::vector<int> &args_to_add,
-                               bool recompute_rw_ranges)
+                               const int *argsbegin, const int *argsend,
+                               bool recompute_rw_ranges, int relation)
 {
     OpcodeVec &code (inst()->ops());
     std::vector<int> &opargs (inst()->args());
     ustring method = (opnum < (int)code.size()) ? code[opnum].method() : OSLCompilerImpl::main_method_name();
-    Opcode op (opname, method, opargs.size(), args_to_add.size());
+    int nargs = argsend - argsbegin;
+    Opcode op (opname, method, opargs.size(), nargs);
     code.insert (code.begin()+opnum, op);
-    opargs.insert (opargs.end(), args_to_add.begin(), args_to_add.end());
+    opargs.insert (opargs.end(), argsbegin, argsend);
     if (opnum < inst()->m_maincodebegin)
         ++inst()->m_maincodebegin;
     ++inst()->m_maincodeend;
+    if ((relation == -1 && opnum > 0) ||
+        (relation == 1 && opnum < (int)code.size()-1)) {
+        code[opnum].method (code[opnum+relation].method());
+        code[opnum].source (code[opnum+relation].sourcefile(),
+                            code[opnum+relation].sourceline());
+    }
 
     // Unless we were inserting at the end, we may need to adjust
     // the jump addresses of other ops and the param init ranges.
@@ -366,7 +417,7 @@ RuntimeOptimizer::insert_code (int opnum, ustring opname,
         BOOST_FOREACH (Symbol &s, inst()->symbols()) {
             if (s.everread()) {
                 int first = s.firstread(), last = s.lastread();
-                if (first > opnum)
+                if (first >= opnum)
                     ++first;
                 if (last >= opnum)
                     ++last;
@@ -374,7 +425,7 @@ RuntimeOptimizer::insert_code (int opnum, ustring opname,
             }
             if (s.everwritten()) {
                 int first = s.firstwrite(), last = s.lastwrite();
-                if (first > opnum)
+                if (first >= opnum)
                     ++first;
                 if (last >= opnum)
                     ++last;
@@ -400,15 +451,45 @@ RuntimeOptimizer::insert_code (int opnum, ustring opname,
                           m_in_loop[opnum]);
     }
 
-    if (opname != u_useparam) {
+    if (opname == u_if) {
+        // special case for 'if' -- the arg is read, not written
+        inst()->symbol(argsbegin[0])->mark_rw (opnum, true, false);
+    }
+    else if (opname != u_useparam) {
         // Mark the args as being used for this op (assume that the
         // first is written, the others are read).  Enforce that with an
         // DASSERT to be sure we only use insert_code for the couple of
         // instructions that we think it is used for.
-        DASSERT (opname == u_assign);
-        for (size_t a = 0;  a < args_to_add.size();  ++a)
-            inst()->symbol(args_to_add[a])->mark_rw (opnum, a>0, a==0);
+        for (int a = 0;  a < nargs;  ++a)
+            inst()->symbol(argsbegin[a])->mark_rw (opnum, a>0, a==0);
     }
+}
+
+
+
+void
+RuntimeOptimizer::insert_code (int opnum, ustring opname,
+                               const std::vector<int> &args_to_add,
+                               bool recompute_rw_ranges, int relation)
+{
+    insert_code (opnum, opname, (const int *)&args_to_add[0],
+                 (const int *)&args_to_add[args_to_add.size()],
+                 recompute_rw_ranges, relation);
+}
+
+
+
+void
+RuntimeOptimizer::insert_code (int opnum, ustring opname, int relation,
+                               int arg0, int arg1, int arg2, int arg3)
+{
+    int args[4];
+    int nargs = 0;
+    if (arg0 >= 0) args[nargs++] = arg0;
+    if (arg1 >= 0) args[nargs++] = arg1;
+    if (arg2 >= 0) args[nargs++] = arg2;
+    if (arg3 >= 0) args[nargs++] = arg3;
+    insert_code (opnum, opname, args, args+nargs, true, relation);
 }
 
 
@@ -417,10 +498,11 @@ RuntimeOptimizer::insert_code (int opnum, ustring opname,
 /// reference the symbols in 'params'.
 void
 RuntimeOptimizer::insert_useparam (size_t opnum,
-                                   std::vector<int> &params_to_use)
+                                   const std::vector<int> &params_to_use)
 {
+    ASSERT (params_to_use.size() > 0);
     OpcodeVec &code (inst()->ops());
-    insert_code (opnum, u_useparam, params_to_use);
+    insert_code (opnum, u_useparam, params_to_use, 1);
 
     // All ops are "read"
     code[opnum].argwrite (0, false);
@@ -574,6 +656,8 @@ unequal_consts (const Symbol &A, const Symbol &B)
 inline bool
 is_zero (const Symbol &A)
 {
+    if (! A.is_constant())
+        return false;
     const TypeSpec &Atype (A.typespec());
     static Vec3 Vzero (0, 0, 0);
     return (Atype.is_float() && *(const float *)A.data() == 0) ||
@@ -586,6 +670,8 @@ is_zero (const Symbol &A)
 inline bool
 is_one (const Symbol &A)
 {
+    if (! A.is_constant())
+        return false;
     const TypeSpec &Atype (A.typespec());
     static Vec3 Vone (1, 1, 1);
     static Matrix44 Mone (1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1);
@@ -1456,6 +1542,144 @@ DECLFOLDER(constfold_clamp)
 
 
 
+DECLFOLDER(constfold_mix)
+{
+    // Try to turn R=mix(a,b,x) into 
+    //   R = c             if all are constant
+    //   R = A             if x is constant and x == 0
+    //   R = B             if x is constant and x == 1
+    // 
+    Opcode &op (rop.inst()->ops()[opnum]);
+    int Rind = rop.oparg(op,0);
+    int Aind = rop.oparg(op,1);
+    int Bind = rop.oparg(op,2);
+    int Xind = rop.oparg(op,3);
+    Symbol &R (*rop.inst()->symbol(Rind));
+    Symbol &A (*rop.inst()->symbol(Aind));
+    Symbol &B (*rop.inst()->symbol(Bind));
+    Symbol &X (*rop.inst()->symbol(Xind));
+    // Everything better be a float or triple
+    if (! ((A.typespec().is_float() || A.typespec().is_triple()) &&
+           (B.typespec().is_float() || B.typespec().is_triple()) &&
+           (X.typespec().is_float() || X.typespec().is_triple())))
+        return 0;
+    if (X.is_constant() && A.is_constant() && B.is_constant()) {
+        // All three constants
+        float result[3];
+        const float *a = (const float *) A.data();
+        const float *b = (const float *) B.data();
+        const float *x = (const float *) X.data();
+        bool atriple = A.typespec().is_triple();
+        bool btriple = B.typespec().is_triple();
+        bool xtriple = X.typespec().is_triple();
+        bool rtriple = R.typespec().is_triple();
+        int ncomps = rtriple ? 3 : 1;
+        for (int i = 0;  i < ncomps;  ++i) {
+            float xval = x[xtriple*i];
+            result[i] = (1.0f-xval) * a[atriple*i] + xval * b[btriple*i];
+        }
+        int cind = rop.add_constant (R.typespec(), &result);
+        rop.turn_into_assign (op, cind, "const fold");
+        return 1;
+    }
+    if (X.is_constant()) {
+        // Two special cases... X is 0, X is 1
+        if (is_zero(X)) {  // mix(A,B,0) == A
+            rop.turn_into_assign (op, Aind, "const fold");
+            return 1;
+        }
+        if (is_one(X)) {  // mix(A,B,1) == B
+            rop.turn_into_assign (op, Bind, "const fold");
+            return 1;
+        }
+    }
+
+    if (is_zero(A) &&
+        (! B.connected() || !rop.opt_mix() || rop.optimization_pass() > 2)) {
+        // mix(0,b,x) == b*x, but only do this if b is not connected
+        rop.turn_into_new_op (op, u_mul, Bind, Xind, "const fold");
+        return 1;
+    }
+#if 0
+    // This seems to almost never happen, so don't worry about it
+    if (is_zero(B) && ! A.connected()) {
+        // mix(a,0,x) == (1-x)*a, but only do this if b is not connected
+    }
+#endif
+
+    // Special sauce: mix(a,b,x) is implemented as a*(1-x)+b*x.  But
+    // consider cases where x is not constant (thus not foldable), but
+    // nonetheless turns out to be 0 or 1 much of the time.  If a and b
+    // are short local computations, it's not so bad, but if they are
+    // shader parameters connected to other layers, this affair may
+    // needlessly evaluate other layers for no purpose other than to
+    // multiply their results by zero.  So we try to ameliorate that
+    // case with some extra tests here.  N.B. we delay doing this until
+    // a few optimization passes in, to give enough time to optimize
+    // away the inputs in other ways before introducing the 'if'.
+    if (rop.opt_mix() && rop.optimization_pass() > 1 &&
+        !X.is_constant() && (A.connected() || B.connected())) {
+        // A or B are connected, and thus presumed expensive, so turn into:
+        //    if (X == 0)  // But eliminate this clause if B not connected
+        //        R = A;
+        //    else if (X == 1)  // But eliminate this clause if A not connected
+        //        R = B;
+        //    else
+        //        R = A*(1-X) + B*X;
+        int if0op = -1;  // Op where we have the 'if' for testing x==0
+        int if1op = -1;  // Op where we have the 'if' for testing x==1
+        if (B.connected()) {
+            // Add the test and conditional for X==0, in which case we can
+            // just R=A and not have to access B
+            int cond = rop.add_temp (TypeDesc::TypeInt);
+            int fzero = rop.add_constant (0.0f);
+            rop.insert_code (opnum++, u_eq, 1 /*relation*/, cond, Xind, fzero);
+            if0op = opnum;
+            rop.insert_code (opnum++, u_if, 1 /*relation*/, cond);
+            rop.op(if0op).argreadonly (0);
+            rop.symbol(cond)->mark_rw (if0op, true, false);
+            // Add the true (R=A) clause
+            rop.insert_code (opnum++, u_assign, 1 /*relation*/, Rind, Aind);
+        }
+        int if0op_false = opnum;  // Where we jump if the 'if x==0' is false
+        if (A.connected()) {
+            // Add the test and conditional for X==1, in which case we can
+            // just R=B and not have to access A
+            int cond = rop.add_temp (TypeDesc::TypeInt);
+            int fone = rop.add_constant (1.0f);
+            rop.insert_code (opnum++, u_eq, 1 /*relation*/, cond, Xind, fone);
+            if1op = opnum;
+            rop.insert_code (opnum++, u_if, 1 /*relation*/, cond);
+            rop.op(if1op).argreadonly (0);
+            rop.symbol(cond)->mark_rw (if1op, true, false);
+            // Add the true (R=B) clause
+            rop.insert_code (opnum++, u_assign, 1 /*relation*/, Rind, Bind);
+        }
+        int if1op_false = opnum;  // Where we jump if the 'if x==1' is false
+        // Add the (R=A*(1-X)+B*X) clause -- always need that
+        int one_minus_x = rop.add_temp (X.typespec());
+        int temp1 = rop.add_temp (A.typespec());
+        int temp2 = rop.add_temp (B.typespec());
+        int fone = rop.add_constant (1.0f);
+        rop.insert_code (opnum++, u_sub, 1 /*relation*/, one_minus_x, fone, Xind);
+        rop.insert_code (opnum++, u_mul, 1 /*relation*/, temp1, Aind, one_minus_x);
+        rop.insert_code (opnum++, u_mul, 1 /*relation*/, temp2, Bind, Xind);
+        rop.insert_code (opnum++, u_add, 1 /*relation*/, Rind, temp1, temp2);
+        // Now go back and patch the 'if' ops with the right jump addresses
+        if (if0op >= 0)
+            rop.op(if0op).set_jump (if0op_false, opnum);
+        if (if1op >= 0)
+            rop.op(if1op).set_jump (if1op_false, opnum);
+        // The next op is the original mix, make it nop
+        rop.turn_into_nop (rop.op(opnum), "smart 'mix'");
+        return 1;
+    }
+
+    return 0;
+}
+
+
+
 DECLFOLDER(constfold_min)
 {
     // Try to turn R=min(x,y) into R=C
@@ -2093,7 +2317,7 @@ DECLFOLDER(constfold_pointcloud_search)
     ustring filename = *(ustring *)Filename.data();
     int count = 0;
     if (! filename.empty()) {
-        count = rop.renderer()->pointcloud_search (NULL, filename,
+        count = rop.renderer()->pointcloud_search (rop.shaderglobals(), filename,
                              *(Vec3 *)Center.data(), *(float *)Radius.data(),
                              maxpoints, false, indices, distances, 0);
         rop.shadingsys().pointcloud_stats (1, 0, count);
@@ -2108,8 +2332,7 @@ DECLFOLDER(constfold_pointcloud_search)
     // If the query returned no matching points, just turn the whole
     // pointcloud_search call into an assignment of 0 to the 'result'.
     if (count < 1) {
-        rop.turn_into_assign (op, rop.add_constant (TypeDesc::TypeInt, &count),
-                              "Folded constant pointcloud_search lookup");
+        rop.turn_into_assign_zero (op, "Folded constant pointcloud_search lookup");
         return 1;
     }
 
@@ -2133,7 +2356,10 @@ DECLFOLDER(constfold_pointcloud_search)
             continue;
         void *const_data = NULL;
         TypeDesc const_valtype = value_types[i];
-        const_valtype.arraylen = count;
+        // How big should the constant arrays be?  Shrink to the size of
+        // the results if they are much smaller.
+        if (count < const_valtype.arraylen/2 && const_valtype.arraylen > 8)
+            const_valtype.arraylen = count;
         tmp.clear ();
         tmp.resize (const_valtype.size(), 0);
         const_data = &tmp[0];
@@ -2153,7 +2379,8 @@ DECLFOLDER(constfold_pointcloud_search)
             }
         } else {
             // Named queries.
-            bool ok = rop.renderer()->pointcloud_get (filename, indices, count,
+            bool ok = rop.renderer()->pointcloud_get (rop.shaderglobals(),
+                                          filename, indices, count,
                                           names[i], const_valtype, const_data);
             rop.shadingsys().pointcloud_stats (0, 1, 0);
             if (! ok) {
@@ -2178,6 +2405,61 @@ DECLFOLDER(constfold_pointcloud_search)
     args_to_add.push_back (rop.add_constant (TypeDesc::TypeInt, &count));
     rop.insert_code (opnum, u_assign, args_to_add, true);
     
+    return 1;
+}
+
+
+
+DECLFOLDER(constfold_pointcloud_get)
+{
+    Opcode &op (rop.inst()->ops()[opnum]);
+    // Symbol& Result     = *rop.opargsym (op, 0);
+    Symbol& Filename   = *rop.opargsym (op, 1);
+    Symbol& Indices    = *rop.opargsym (op, 2);
+    Symbol& Count      = *rop.opargsym (op, 3);
+    Symbol& Attr_name  = *rop.opargsym (op, 4);
+    Symbol& Data       = *rop.opargsym (op, 5);
+    if (! (Filename.is_constant() && Indices.is_constant() &&
+           Count.is_constant() && Attr_name.is_constant()))
+        return 0;
+
+    // All inputs are constants -- we can just turn this into an array
+    // assignment.
+
+    ustring filename = *(ustring *)Filename.data();
+    int count = *(int *)Count.data();
+    if (filename.empty() || count < 1) {
+        rop.turn_into_assign_zero (op, "Folded constant pointcloud_get");
+        return 1;
+    }
+
+    if (count >= 1024)  // Too many, don't bother folding
+        return 0;
+
+    // Must transfer to size_t array
+    size_t *indices = ALLOCA (size_t, count);
+    for (int i = 0;  i < count;  ++i)
+        indices[i] = ((int *)Indices.data())[i];
+
+    TypeDesc valtype = Data.typespec().simpletype();
+    std::vector<char> data (valtype.size());
+    int ok = rop.renderer()->pointcloud_get (rop.shaderglobals(), filename,
+                                             indices, count,
+                                             *(ustring *)Attr_name.data(),
+                                             valtype.elementtype(), &data[0]);
+    rop.shadingsys().pointcloud_stats (0, 1, 0);
+
+    rop.turn_into_assign (op, rop.add_constant (TypeDesc::TypeInt, &ok),
+                          "Folded constant pointcloud_get");
+
+    // Now make a constant array for those results we just retrieved...
+    int const_array_sym = rop.add_constant (valtype, &data[0]);
+    // ... and add an instruction to copy the constant into the
+    // original destination for the query.
+    std::vector<int> args_to_add;
+    args_to_add.push_back (rop.oparg(op,5) /* Data symbol*/);
+    args_to_add.push_back (const_array_sym);
+    rop.insert_code (opnum, u_assign, args_to_add, true);
     return 1;
 }
 
@@ -3018,16 +3300,16 @@ RuntimeOptimizer::optimize_instance ()
     // Try to fold constants.  We take several passes, until we get to
     // the point that not much is improving.  It rarely goes beyond 3-4
     // passes, but we have a hard cutoff at 10 just to be sure we don't
-    // ever get into an infinite loop from an unforseen cycle.  where we
+    // ever get into an infinite loop from an unforseen cycle where we
     // end up inadvertently transforming A => B => A => etc.
     int totalchanged = 0;
-    int reallydone = 0;   // Force one pass after we think we're done
-    for (int pass = 0;  pass < 10;  ++pass) {
+    int reallydone = 0;   // Force a few passes after we think we're done
+    for (m_pass = 0;  m_pass < 10;  ++m_pass) {
 
         // Once we've made one pass (and therefore called
         // mark_outgoing_connections), we may notice that the layer is
         // unused, and therefore can stop doing work to optimize it.
-        if (pass != 0 && inst()->unused())
+        if (m_pass != 0 && inst()->unused())
             break;
 
         // Track basic blocks and conditional states
@@ -3044,7 +3326,9 @@ RuntimeOptimizer::optimize_instance ()
         int changed = 0;
         int lastblock = -1;
         size_t num_ops = inst()->ops().size();
-        for (int opnum = 0;  opnum < (int)num_ops;  ++opnum) {
+        int skipops = 0;   // extra inserted ops to skip over
+        for (int opnum = 0;  opnum < (int)num_ops;  opnum += 1+skipops) {
+            skipops = 0;
             // Before getting a reference to this op, be sure that a space
             // is reserved at the end in case a folding routine inserts an
             // op.  That ensures that the reference won't be invalid.
@@ -3089,9 +3373,11 @@ RuntimeOptimizer::optimize_instance ()
             if (optimize() >= 2 && m_opt_constant_fold) {
                 const OpDescriptor *opd = m_shadingsys.op_descriptor (op.opname());
                 if (opd && opd->folder) {
+                    size_t old_num_ops = inst()->ops().size();
                     changed += (*opd->folder) (*this, opnum);
                     // Re-check num_ops in case the folder inserted something
                     num_ops = inst()->ops().size();
+                    skipops = num_ops - old_num_ops;
                 }
             }
 
@@ -3750,6 +4036,8 @@ RuntimeOptimizer::optimize_group ()
     size_t old_nsyms = 0, old_nops = 0;
     for (int layer = 0;  layer < nlayers;  ++layer) {
         set_inst (layer);
+        if (inst()->unused())
+            continue;
         m_inst->copy_code_from_master ();
         if (debug() && optimize() >= 1) {
             std::cout.flush ();
@@ -3774,8 +4062,13 @@ RuntimeOptimizer::optimize_group ()
             optimize_instance ();
     }
 
+    // Try merging instances again, now that we've optimized
+    shadingsys().merge_instances (group(), true);
+
     for (int layer = nlayers-1;  layer >= 0;  --layer) {
         set_inst (layer);
+        if (inst()->unused())
+            continue;
         track_variable_dependencies ();
 
         // For our parameters that require derivatives, mark their
@@ -3797,6 +4090,9 @@ RuntimeOptimizer::optimize_group ()
         if (! inst()->unused())
             post_optimize_instance ();
     }
+
+    // Last chance to eliminate duplicate instances
+    shadingsys().merge_instances (group(), true);
 
     // Get rid of nop instructions and unused symbols.
     size_t new_nsyms = 0, new_nops = 0;
@@ -3864,27 +4160,29 @@ RuntimeOptimizer::optimize_group ()
                                                   m_llvm_local_mem);
     }
 
-    if (m_group.name()) {
-        m_shadingsys.info ("Optimized shader group %s:", m_group.name().c_str());
-        m_shadingsys.info ("    New syms %llu/%llu (%5.1f%%), ops %llu/%llu (%5.1f%%)",
-          new_nsyms, old_nsyms,
-          100.0*double((long long)new_nsyms-(long long)old_nsyms)/double(old_nsyms),
-          new_nops, old_nops,
-          100.0*double((long long)new_nops-(long long)old_nops)/double(old_nops));
-    } else {
-        m_shadingsys.info ("Optimized shader group: New syms %llu/%llu (%5.1f%%), ops %llu/%llu (%5.1f%%)",
-          new_nsyms, old_nsyms,
-          100.0*double((long long)new_nsyms-(long long)old_nsyms)/double(old_nsyms),
-          new_nops, old_nops,
-          100.0*double((long long)new_nops-(long long)old_nops)/double(old_nops));
+    if (m_shadingsys.m_compile_report) {
+        if (m_group.name()) {
+            m_shadingsys.info ("Optimized shader group %s:", m_group.name().c_str());
+            m_shadingsys.info ("    New syms %llu/%llu (%5.1f%%), ops %llu/%llu (%5.1f%%)",
+              new_nsyms, old_nsyms,
+              100.0*double((long long)new_nsyms-(long long)old_nsyms)/double(old_nsyms),
+              new_nops, old_nops,
+              100.0*double((long long)new_nops-(long long)old_nops)/double(old_nops));
+        } else {
+            m_shadingsys.info ("Optimized shader group: New syms %llu/%llu (%5.1f%%), ops %llu/%llu (%5.1f%%)",
+              new_nsyms, old_nsyms,
+              100.0*double((long long)new_nsyms-(long long)old_nsyms)/double(old_nsyms),
+              new_nops, old_nops,
+              100.0*double((long long)new_nops-(long long)old_nops)/double(old_nops));
+        }
+        m_shadingsys.info ("    (%1.2fs = %1.2f spc, %1.2f lllock, %1.2f llset, %1.2f ir, %1.2f opt, %1.2f jit; local mem %dKB)",
+                           m_stat_total_llvm_time+m_stat_specialization_time,
+                           m_stat_specialization_time, 
+                           m_stat_opt_locking_time, m_stat_llvm_setup_time,
+                           m_stat_llvm_irgen_time, m_stat_llvm_opt_time,
+                           m_stat_llvm_jit_time,
+                           m_llvm_local_mem/1024);
     }
-    m_shadingsys.info ("    (%1.2fs = %1.2f spc, %1.2f lllock, %1.2f llset, %1.2f ir, %1.2f opt, %1.2f jit; local mem %dKB)",
-                       m_stat_total_llvm_time+m_stat_specialization_time,
-                       m_stat_specialization_time, 
-                       m_stat_opt_locking_time, m_stat_llvm_setup_time,
-                       m_stat_llvm_irgen_time, m_stat_llvm_opt_time,
-                       m_stat_llvm_jit_time,
-                       m_llvm_local_mem/1024);
 }
 
 
@@ -3922,8 +4220,10 @@ ShadingSystemImpl::optimize_group (ShadingAttribState &attribstate,
 
     double locking_time = timer();
 
-    RuntimeOptimizer rop (*this, group);
+    ShadingContext *ctx = get_context ();
+    RuntimeOptimizer rop (*this, group, ctx);
     rop.optimize_group ();
+    release_context (ctx);
 
     attribstate.changed_shaders ();
     group.m_optimized = true;
@@ -3993,6 +4293,118 @@ ShadingSystemImpl::optimize_all_groups (int nthreads)
                 optimize_group (*sas, sgroup);
         }
     }
+}
+
+
+
+int
+ShadingSystemImpl::merge_instances (ShaderGroup &group, bool post_opt)
+{
+    // Look through the shader group for pairs of nodes/layers that
+    // actually do exactly the same thing, and eliminate one of the
+    // rundantant shaders, carefully rewiring all its outgoing
+    // connections to later layers to refer to the one we keep.
+    //
+    // It turns out that in practice, it's not uncommon to have
+    // duplicate nodes.  For example, some materials are "layered" --
+    // like a character skin shader that has separate sub-networks for
+    // skin, oil, wetness, and so on -- and those different sub-nets
+    // often reference the same texture maps or noise functions by
+    // repetition.  Yes, ideally, the redundancies would be eliminated
+    // before they were fed to the renderer, but in practice that's hard
+    // and for many scenes we get substantial savings of time (mostly
+    // because of reduced texture calls) and instance memory by finding
+    // these redundancies automatically.  The amount of savings is quite
+    // scene dependent, as well as probably very dependent on the
+    // general shading and lookdev approach of the studio.  But it was
+    // very helpful for us in many cases.
+    //
+    // The basic loop below looks very inefficient, O(n^2) in number of
+    // instances in the group. But it's really not -- a few seconds (sum
+    // of all threads) for even our very complex scenes. This is because
+    // most potential pairs have a very fast rejection case if they are
+    // not using the same master.  Since there's no appreciable cost to
+    // the brute force approach, it seems silly to have a complex scheme
+    // to try to reduce the number of pairings.
+
+    if (! m_opt_merge_instances)
+        return 0;
+
+    Timer timer;                // Time we spend looking for and doing merges
+    int merges = 0;             // number of merges we do
+    size_t connectionmem = 0;   // Connection memory we free
+    int nlayers = group.nlayers();
+
+    // Loop over all layers...
+    for (int a = 0;  a < nlayers;  ++a) {
+        if (group[a]->unused())    // Don't merge a layer that's not used
+            continue;
+        // Check all later layers...
+        for (int b = a+1;  b < nlayers;  ++b) {
+            if (group[b]->unused())    // Don't merge a layer that's not used
+                continue;
+
+            // Now we have two used layers, a and b, to examine.
+            // See if they are mergeable (identical).  All the heavy
+            // lifting is done by ShaderInstance::mergeable().
+            if (! group[a]->mergeable (*group[b], group))
+                continue;
+
+            // The two nodes a and b are mergeable, so merge them.
+            ShaderInstance *A = group[a];
+            ShaderInstance *B = group[b];
+            ++merges;
+
+            // We'll keep A, get rid of B.  For all layers later than B,
+            // check its incoming connections and replace all references
+            // to B with references to A.
+            for (int j = b+1;  j < nlayers;  ++j) {
+                ShaderInstance *inst = group[j];
+                if (inst->unused())  // don't bother if it's unused
+                    continue;
+                for (int c = 0, ce = inst->nconnections();  c < ce;  ++c) {
+                    Connection &con = inst->connection(c);
+                    if (con.srclayer == b) {
+                        con.srclayer = a;
+                        if (B->symbols().size()) {
+                            ASSERT (A->symbol(con.src.param)->name() ==
+                                    B->symbol(con.src.param)->name());
+                        }
+                    }
+                }
+            }
+
+            // Mark parameters of B as no longer connected
+            for (int p = B->firstparam();  p < B->lastparam();  ++p) {
+                if (B->symbols().size())
+                    B->symbol(p)->connected_down(false);
+                if (B->m_instoverrides.size())
+                    B->instoverride(p)->connected_down(false);
+            }
+            // B won't be used, so mark it as having no outgoing
+            // connections and clear its incoming connections (which are
+            // no longer used).
+            B->outgoing_connections (false);
+            B->run_lazily (true);
+            connectionmem += B->clear_connections ();
+            ASSERT (B->unused());
+        }
+    }
+
+    {
+        // Adjust stats
+        spin_lock lock (m_stat_mutex);
+        m_stat_mem_inst_connections -= connectionmem;
+        m_stat_mem_inst -= connectionmem;
+        m_stat_memory -= connectionmem;
+        if (post_opt)
+            m_stat_merged_inst_opt += merges;
+        else
+            m_stat_merged_inst += merges;
+        m_stat_inst_merge_time += timer();
+    }
+
+    return merges;
 }
 
 
