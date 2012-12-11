@@ -35,6 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <boost/regex.hpp>
 #include <boost/unordered_map.hpp>
 
+#include <OpenImageIO/sysutil.h>
 #include <OpenImageIO/timer.h>
 #include <OpenImageIO/thread.h>
 
@@ -105,6 +106,7 @@ RuntimeOptimizer::RuntimeOptimizer (ShadingSystemImpl &shadingsys,
       m_opt_coalesce_temps(shadingsys.m_opt_coalesce_temps),
       m_opt_assign(shadingsys.m_opt_assign),
       m_opt_mix(shadingsys.m_opt_mix),
+      m_opt_merge_instances(shadingsys.m_opt_merge_instances),
       m_next_newconst(0), m_next_newtemp(0),
       m_stat_opt_locking_time(0), m_stat_specialization_time(0),
       m_stat_total_llvm_time(0), m_stat_llvm_setup_time(0),
@@ -169,6 +171,7 @@ RuntimeOptimizer::set_debug ()
             m_opt_coalesce_temps = true;
             m_opt_assign = true;
             m_opt_mix = true;
+            m_opt_merge_instances = true;
         }
     }
     // if user said to only debug one layer, turn off debug if not it
@@ -251,7 +254,7 @@ RuntimeOptimizer::turn_into_new_op (Opcode &op, ustring newop, int newarg1,
                   << newop << ' ' << inst()->symbol(newarg1)->name() << ' '
                   << (newarg2<0 ? "" : inst()->symbol(newarg2)->name().c_str())
                   << (why ? " : " : "") << (why ? why : "") << "\n";
-    op.reset (newop, newarg2<0 ? 1 : 2);
+    op.reset (newop, newarg2<0 ? 2 : 3);
     op.argwriteonly (0);
     inst()->args()[op.firstarg()+1] = newarg1;
     op.argread (1, true);
@@ -1585,22 +1588,6 @@ DECLFOLDER(constfold_mix)
             rop.turn_into_assign (op, Bind, "const fold");
             return 1;
         }
-    }
-    if (is_zero(A) && is_zero(X)) {   // mix(0,B,0) == 0
-        rop.turn_into_assign_zero (op, "const fold");
-        return 1;
-    }
-    if (is_zero(A) && is_one(X)) {   // mix(0,B,1) == B
-        rop.turn_into_assign (op, Bind, "const fold");
-        return 1;
-    }
-    if (is_zero(B) && is_one(X)) {   // mix(a,0,1) == 0
-        rop.turn_into_assign_zero (op, "const fold");
-        return 1;
-    }
-    if (is_zero(B) && is_zero(X)) {  // mix(a,0,0) == A
-        rop.turn_into_assign (op, Aind, "const fold");
-        return 1;
     }
 
     if (is_zero(A) &&
@@ -4036,6 +4023,8 @@ RuntimeOptimizer::optimize_group ()
     size_t old_nsyms = 0, old_nops = 0;
     for (int layer = 0;  layer < nlayers;  ++layer) {
         set_inst (layer);
+        if (inst()->unused())
+            continue;
         m_inst->copy_code_from_master ();
         if (debug() && optimize() >= 1) {
             std::cout.flush ();
@@ -4060,8 +4049,13 @@ RuntimeOptimizer::optimize_group ()
             optimize_instance ();
     }
 
+    // Try merging instances again, now that we've optimized
+    shadingsys().merge_instances (group(), true);
+
     for (int layer = nlayers-1;  layer >= 0;  --layer) {
         set_inst (layer);
+        if (inst()->unused())
+            continue;
         track_variable_dependencies ();
 
         // For our parameters that require derivatives, mark their
@@ -4083,6 +4077,9 @@ RuntimeOptimizer::optimize_group ()
         if (! inst()->unused())
             post_optimize_instance ();
     }
+
+    // Last chance to eliminate duplicate instances
+    shadingsys().merge_instances (group(), true);
 
     // Get rid of nop instructions and unused symbols.
     size_t new_nsyms = 0, new_nops = 0;
@@ -4283,6 +4280,118 @@ ShadingSystemImpl::optimize_all_groups (int nthreads)
                 optimize_group (*sas, sgroup);
         }
     }
+}
+
+
+
+int
+ShadingSystemImpl::merge_instances (ShaderGroup &group, bool post_opt)
+{
+    // Look through the shader group for pairs of nodes/layers that
+    // actually do exactly the same thing, and eliminate one of the
+    // rundantant shaders, carefully rewiring all its outgoing
+    // connections to later layers to refer to the one we keep.
+    //
+    // It turns out that in practice, it's not uncommon to have
+    // duplicate nodes.  For example, some materials are "layered" --
+    // like a character skin shader that has separate sub-networks for
+    // skin, oil, wetness, and so on -- and those different sub-nets
+    // often reference the same texture maps or noise functions by
+    // repetition.  Yes, ideally, the redundancies would be eliminated
+    // before they were fed to the renderer, but in practice that's hard
+    // and for many scenes we get substantial savings of time (mostly
+    // because of reduced texture calls) and instance memory by finding
+    // these redundancies automatically.  The amount of savings is quite
+    // scene dependent, as well as probably very dependent on the
+    // general shading and lookdev approach of the studio.  But it was
+    // very helpful for us in many cases.
+    //
+    // The basic loop below looks very inefficient, O(n^2) in number of
+    // instances in the group. But it's really not -- a few seconds (sum
+    // of all threads) for even our very complex scenes. This is because
+    // most potential pairs have a very fast rejection case if they are
+    // not using the same master.  Since there's no appreciable cost to
+    // the brute force approach, it seems silly to have a complex scheme
+    // to try to reduce the number of pairings.
+
+    if (! m_opt_merge_instances)
+        return 0;
+
+    Timer timer;                // Time we spend looking for and doing merges
+    int merges = 0;             // number of merges we do
+    size_t connectionmem = 0;   // Connection memory we free
+    int nlayers = group.nlayers();
+
+    // Loop over all layers...
+    for (int a = 0;  a < nlayers;  ++a) {
+        if (group[a]->unused())    // Don't merge a layer that's not used
+            continue;
+        // Check all later layers...
+        for (int b = a+1;  b < nlayers;  ++b) {
+            if (group[b]->unused())    // Don't merge a layer that's not used
+                continue;
+
+            // Now we have two used layers, a and b, to examine.
+            // See if they are mergeable (identical).  All the heavy
+            // lifting is done by ShaderInstance::mergeable().
+            if (! group[a]->mergeable (*group[b], group))
+                continue;
+
+            // The two nodes a and b are mergeable, so merge them.
+            ShaderInstance *A = group[a];
+            ShaderInstance *B = group[b];
+            ++merges;
+
+            // We'll keep A, get rid of B.  For all layers later than B,
+            // check its incoming connections and replace all references
+            // to B with references to A.
+            for (int j = b+1;  j < nlayers;  ++j) {
+                ShaderInstance *inst = group[j];
+                if (inst->unused())  // don't bother if it's unused
+                    continue;
+                for (int c = 0, ce = inst->nconnections();  c < ce;  ++c) {
+                    Connection &con = inst->connection(c);
+                    if (con.srclayer == b) {
+                        con.srclayer = a;
+                        if (B->symbols().size()) {
+                            ASSERT (A->symbol(con.src.param)->name() ==
+                                    B->symbol(con.src.param)->name());
+                        }
+                    }
+                }
+            }
+
+            // Mark parameters of B as no longer connected
+            for (int p = B->firstparam();  p < B->lastparam();  ++p) {
+                if (B->symbols().size())
+                    B->symbol(p)->connected_down(false);
+                if (B->m_instoverrides.size())
+                    B->instoverride(p)->connected_down(false);
+            }
+            // B won't be used, so mark it as having no outgoing
+            // connections and clear its incoming connections (which are
+            // no longer used).
+            B->outgoing_connections (false);
+            B->run_lazily (true);
+            connectionmem += B->clear_connections ();
+            ASSERT (B->unused());
+        }
+    }
+
+    {
+        // Adjust stats
+        spin_lock lock (m_stat_mutex);
+        m_stat_mem_inst_connections -= connectionmem;
+        m_stat_mem_inst -= connectionmem;
+        m_stat_memory -= connectionmem;
+        if (post_opt)
+            m_stat_merged_inst_opt += merges;
+        else
+            m_stat_merged_inst += merges;
+        m_stat_inst_merge_time += timer();
+    }
+
+    return merges;
 }
 
 

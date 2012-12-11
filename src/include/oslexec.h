@@ -119,6 +119,7 @@ public:
     ///         opt_constant_param, opt_constant_fold, opt_stale_assign,
     ///         opt_elide_useless_ops, opt_elide_unconnected_outputs,
     ///         opt_peephole, opt_coalesce_temps, opt_assign, opt_mix
+    ///         opt_merge_instances
     ///    int llvm_optimize      Which of several LLVM optimize strategies (0)
     ///    int llvm_debug         Turn on extra LLVM debug info (0)
     ///    int max_local_mem_KB   Error if shader group needs more than this
@@ -179,6 +180,11 @@ public:
         return ok;
     }
 
+    /// Load compiled shader (oso) from a memory buffer, overriding
+    /// shader lookups in the shader search path
+    virtual bool LoadMemoryShader (const char *shadername,
+                                   const char *buffer)=0;
+
     /// Set a parameter of the next shader.
     ///
     virtual bool Parameter (const char *name, TypeDesc t, const void *val)
@@ -218,11 +224,6 @@ public:
     virtual bool ConnectShaders (const char *srclayer, const char *srcparam,
                                  const char *dstlayer, const char *dstparam)=0;
     
-    // Load OSO data from memory buffer, overriding shader lookups in the
-    // shader search path
-    virtual bool LoadMemoryShader (const char *shadername,
-                                   const char *buffer)=0;
-
     /// Return a reference-counted (but opaque) reference to the current
     /// shading attribute state maintained by the ShadingSystem.
     virtual ShadingAttribStateRef state () = 0;
