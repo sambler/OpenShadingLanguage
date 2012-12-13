@@ -562,8 +562,8 @@ ShadingSystemImpl::loadshader (const char *cname)
 
 
 bool
-ShadingSystemImpl::LoadMemoryShader (const char *shadername,
-                                     const char *buffer)
+ShadingSystemImpl::LoadMemoryCompiledShader (const char *shadername,
+                                             const char *buffer)
 {
     if (! shadername || ! shadername[0]) {
         error ("Attempt to load shader with empty name \"\".");
@@ -605,6 +605,7 @@ ShadingSystemImpl::LoadMemoryShader (const char *shadername,
 
     return true;
 }
+
 
 
 }; // namespace pvt

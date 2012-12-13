@@ -182,8 +182,8 @@ public:
 
     /// Load compiled shader (oso) from a memory buffer, overriding
     /// shader lookups in the shader search path
-    virtual bool LoadMemoryShader (const char *shadername,
-                                   const char *buffer)=0;
+    virtual bool LoadMemoryCompiledShader (const char *shadername,
+                                           const char *buffer)=0;
 
     /// Set a parameter of the next shader.
     ///
