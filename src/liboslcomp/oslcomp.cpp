@@ -259,7 +259,7 @@ preprocess (const std::string &filename,
     cppcommand += options;
 
     if (! stdinclude.empty())
-        cppcommand += std::string("-include ") + stdinclude + " ";
+        cppcommand += std::string("-include \"") + stdinclude + "\" ";
 
     cppcommand += "\"";
     cppcommand += filename;
