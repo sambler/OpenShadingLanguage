@@ -3562,6 +3562,8 @@ RuntimeOptimizer::track_variable_lifetimes ()
 }
 
 
+// This has O(n^2) memory usage, so only for debugging
+//#define DEBUG_SYMBOL_DEPENDENCIES
 
 // Add to the dependency map that "symbol A depends on symbol B".
 void
@@ -3570,11 +3572,13 @@ RuntimeOptimizer::add_dependency (SymDependency &dmap, int A, int B)
     ASSERT (A < (int)inst()->symbols().size());
     ASSERT (B < (int)inst()->symbols().size());
     dmap[A].insert (B);
+
+#ifdef DEBUG_SYMBOL_DEPENDENCIES
     // Unification -- make all of B's dependencies be dependencies of A.
     BOOST_FOREACH (int r, dmap[B])
         dmap[A].insert (r);
+#endif
 }
-
 
 
 void
@@ -3599,6 +3603,25 @@ RuntimeOptimizer::syms_used_in_op (Opcode &op, std::vector<int> &rsyms,
 // Fake symbol index for "derivatives" entry in dependency map.
 static const int DerivSym = -1;
 
+
+// Recursively mark symbols that have derivatives from dependency map
+void
+RuntimeOptimizer::mark_symbol_derivatives (SymDependency &symdeps, SymIntSet &visited, int d)
+{
+    BOOST_FOREACH (int r, symdeps[d]) {
+        if (visited.find(r) == visited.end()) {
+            visited.insert(r);
+            
+            Symbol *s = inst()->symbol(r);
+
+            if (! s->typespec().is_closure_based() && 
+                    s->typespec().elementtype().is_floatbased())
+                s->has_derivs (true);
+
+            mark_symbol_derivatives(symdeps, visited, r);
+        }
+    }
+}
 
 
 /// Run through all the ops, for each one marking its 'written'
@@ -3702,12 +3725,8 @@ RuntimeOptimizer::track_variable_dependencies ()
     }
 
     // Mark all symbols needing derivatives as such
-    BOOST_FOREACH (int d, symdeps[DerivSym]) {
-        Symbol *s = inst()->symbol(d);
-        if (! s->typespec().is_closure_based() && 
-                s->typespec().elementtype().is_floatbased())
-            s->has_derivs (true);
-    }
+    SymIntSet visited;
+    mark_symbol_derivatives (symdeps, visited, DerivSym);
 
     // Only some globals are allowed to have derivatives
     BOOST_FOREACH (Symbol &s, inst()->symbols()) {
@@ -3720,7 +3739,7 @@ RuntimeOptimizer::track_variable_dependencies ()
             s.has_derivs (false);
     }
 
-#if 0
+#ifdef DEBUG_SYMBOL_DEPENDENCIES
     // Helpful for debugging
 
     std::cerr << "track_variable_dependencies\n";
