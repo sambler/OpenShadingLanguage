@@ -62,13 +62,14 @@
     OP (format,      printf,              format,        true);
     OP (functioncall, functioncall,       functioncall,  false);
     OP (ge,          compare_op,          ge,            true);
-    OP (getattribute, getattribute,       none,          false);
+    OP (getattribute, getattribute,       getattribute,  false);
     OP (getmatrix,   getmatrix,           getmatrix,     false);
     OP (getmessage,  getmessage,          getmessage,    false);
     OP (gettextureinfo, gettextureinfo,   gettextureinfo,false);
     OP (gt,          compare_op,          gt,            true);
     OP (if,          if,                  if,            false);
     OP (inversesqrt, generic,             none,          true);
+    OP (isconnected, generic,             none,          true);
     OP (isfinite,    generic,             none,          true);
     OP (isinf,       generic,             none,          true);
     OP (isnan,       generic,             none,          true);

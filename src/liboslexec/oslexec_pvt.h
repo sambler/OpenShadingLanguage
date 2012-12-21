@@ -766,6 +766,7 @@ public:
     int optimize () const { return m_optimize; }
     int llvm_optimize () const { return m_llvm_optimize; }
     int llvm_debug () const { return m_llvm_debug; }
+    bool fold_getattribute () { return m_opt_fold_getattribute; }
 
     ustring commonspace_synonym () const { return m_commonspace_synonym; }
 
@@ -904,12 +905,14 @@ private:
     bool m_opt_assign;                    ///< Do various assign optimizations?
     bool m_opt_mix;                       ///< Special 'mix' optimizations
     bool m_opt_merge_instances;           ///< Merge identical instances?
+    bool m_opt_fold_getattribute;         ///< Constant-fold getattribute()?
     bool m_optimize_nondebug;             ///< Fully optimize non-debug!
     int m_llvm_optimize;                  ///< OSL optimization strategy
     int m_debug;                          ///< Debugging output
     int m_llvm_debug;                     ///< More LLVM debugging output
     ustring m_debug_groupname;            ///< Name of sole group to debug
     ustring m_debug_layername;            ///< Name of sole layer to debug
+    ustring m_opt_layername;              ///< Name of sole layer to optimize
     ustring m_only_groupname;             ///< Name of sole group to compile
     std::string m_searchpath;             ///< Shader search path
     std::vector<std::string> m_searchpath_dirs; ///< All searchpath dirs

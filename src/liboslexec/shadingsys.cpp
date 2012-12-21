@@ -122,25 +122,31 @@ bool
 ShadingSystem::convert_value (void *dst, TypeDesc dsttype,
                               const void *src, TypeDesc srctype)
 {
-    // Just copy equivalent types
-    if (equivalent (dsttype, srctype)) {
-        if (dst && src) {
-            size_t size = dsttype.size();
-            if (size == sizeof(float))    // common case: float/int copy
-                *(float *)dst = *(const float *)src;
-            else
-                memcpy (dst, src, dsttype.size());  // otherwise, memcpy
+    int tmp_int;
+    if (srctype == TypeDesc::UINT8) {
+        // uint8 src: Up-convert the source to int
+        if (src) {
+            tmp_int = *(const unsigned char *)src;
+            src = &tmp_int;
         }
-        return true;
+        srctype = TypeDesc::TypeInt;
     }
 
+    float tmp_float;
     if (srctype == TypeDesc::TypeInt && dsttype.basetype == TypeDesc::FLOAT) {
-        if (dst && src) {
-            // int -> any-float-based ... up-convert to float and recurse
-            float f = (float) (*(const int *)src);
-            return convert_value (dst, dsttype, &f, TypeDesc::TypeFloat);
+        // int -> float-based : up-convert the source to float
+        if (src) {
+            tmp_float = (float) (*(const int *)src);
+            src = &tmp_float;
         }
-        return convert_value (NULL, dsttype, NULL, TypeDesc::TypeFloat);
+        srctype = TypeDesc::TypeFloat;
+    }
+
+    // Just copy equivalent types
+    if (equivalent (dsttype, srctype)) {
+        if (dst && src)
+            memcpy (dst, src, dsttype.size());
+        return true;
     }
 
     if (srctype == TypeDesc::TypeFloat) {
@@ -274,6 +280,7 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
       m_opt_elide_unconnected_outputs(true),
       m_opt_peephole(true), m_opt_coalesce_temps(true),
       m_opt_assign(true), m_opt_mix(true), m_opt_merge_instances(true),
+      m_opt_fold_getattribute(true),
       m_optimize_nondebug(false),
       m_llvm_optimize(0),
       m_debug(false), m_llvm_debug(false),
@@ -457,6 +464,7 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("opt_assign", int, m_opt_assign);
     ATTR_SET ("opt_mix", int, m_opt_mix);
     ATTR_SET ("opt_merge_instances", int, m_opt_merge_instances);
+    ATTR_SET ("opt_fold_getattribute", int, m_opt_fold_getattribute);
     ATTR_SET ("optimize_nondebug", int, m_optimize_nondebug);
     ATTR_SET ("llvm_optimize", int, m_llvm_optimize);
     ATTR_SET ("llvm_debug", int, m_llvm_debug);
@@ -470,6 +478,7 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET_STRING ("commonspace", m_commonspace_synonym);
     ATTR_SET_STRING ("debug_groupname", m_debug_groupname);
     ATTR_SET_STRING ("debug_layername", m_debug_layername);
+    ATTR_SET_STRING ("opt_layername", m_opt_layername);
     ATTR_SET_STRING ("only_groupname", m_only_groupname);
 
     // cases for special handling
@@ -535,6 +544,7 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("opt_assign", int, m_opt_assign);
     ATTR_DECODE ("opt_mix", int, m_opt_mix);
     ATTR_DECODE ("opt_merge_instances", int, m_opt_merge_instances);
+    ATTR_DECODE ("opt_fold_getattribute", int, m_opt_fold_getattribute);
     ATTR_DECODE ("optimize_nondebug", int, m_optimize_nondebug);
     ATTR_DECODE ("llvm_optimize", int, m_llvm_optimize);
     ATTR_DECODE ("debug", int, m_debug);
@@ -548,6 +558,7 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE_STRING ("colorspace", m_colorspace);
     ATTR_DECODE_STRING ("debug_groupname", m_debug_groupname);
     ATTR_DECODE_STRING ("debug_layername", m_debug_layername);
+    ATTR_DECODE_STRING ("opt_layername", m_opt_layername);
     ATTR_DECODE_STRING ("only_groupname", m_only_groupname);
     ATTR_DECODE ("max_local_mem_KB", int, m_max_local_mem_KB);
     ATTR_DECODE ("compile_report", int, m_compile_report);
@@ -939,9 +950,9 @@ ShadingSystemImpl::ShaderGroupEnd (void)
                 inst->run_lazily (false);
             }
         }
-    }
 
-    merge_instances (m_curattrib->shadergroup (m_group_use));
+        merge_instances (m_curattrib->shadergroup (m_group_use));
+    }
 
     m_in_group = false;
     m_group_use = ShadUseUnknown;

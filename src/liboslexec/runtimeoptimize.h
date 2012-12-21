@@ -110,7 +110,8 @@ public:
     /// Search for a constant whose type and value match type and data[...],
     /// returning its index if one exists, or else creating a new constant
     /// and returning its index.
-    int add_constant (const TypeSpec &type, const void *data);
+    int add_constant (const TypeSpec &type, const void *data,
+                      TypeDesc datatype=TypeDesc::UNKNOWN);
     int add_constant (float c) { return add_constant(TypeDesc::TypeFloat, &c); }
     int add_constant (int c) { return add_constant(TypeDesc::TypeInt, &c); }
 
@@ -181,6 +182,13 @@ public:
         m_block_aliases[symindex] = -1;
     }
 
+    /// Clear local block aliases for any args that are written by this op.
+    void block_unalias_written_args (Opcode &op) {
+        for (int i = 0, e = op.nargs();  i < e;  ++i)
+            if (op.argwrite(i))
+                block_unalias (inst()->arg(op.firstarg()+i));
+    }
+
     /// Reset all block-local aliases (done when we enter a new basic
     /// block).
     void clear_block_aliases () {
@@ -229,7 +237,8 @@ public:
 
     /// Replace R's instance value with new data.
     ///
-    void replace_param_value (Symbol *R, const void *newdata);
+    void replace_param_value (Symbol *R, const void *newdata,
+                              const TypeSpec &newdata_type);
 
     bool outparam_assign_elision (int opnum, Opcode &op);
 
@@ -294,6 +303,9 @@ public:
 
     int remove_unused_params ();
 
+    /// Turn isconnected() calls into constant assignments
+    void resolve_isconnected ();
+
     /// Squeeze out unused symbols from an instance that has been
     /// optimized.
     void collapse_syms ();
@@ -326,7 +338,7 @@ public:
 
     /// Helper: return the symbol index of the symbol that is the argnum-th
     /// argument to the given op.
-    int oparg (const Opcode &op, int argnum) {
+    int oparg (const Opcode &op, int argnum) const {
         return inst()->arg (op.firstarg()+argnum);
     }
 
@@ -821,6 +833,12 @@ public:
     /// Which optimization pass are we on?
     int optimization_pass () const { return m_pass; }
 
+    ShaderGlobals &dummy_shaderglobals () { return m_shaderglobals; }
+
+    // Maximum number of new constant symbols that a constant-folding
+    // function is able to add.
+    static const int max_new_consts_per_fold = 10;
+
 private:
     ShadingSystemImpl &m_shadingsys;
     PerThreadInfo *m_thread;
@@ -840,7 +858,6 @@ private:
     bool m_opt_coalesce_temps;            ///< Coalesce temporary variables?
     bool m_opt_assign;                    ///< Do various assign optimizations?
     bool m_opt_mix;                       ///< Do mix optimizations?
-    bool m_opt_merge_instances;           ///< Merge identical instances?
     ShaderGlobals m_shaderglobals;        ///< Dummy ShaderGlobals
 
     // All below is just for the one inst we're optimizing:
