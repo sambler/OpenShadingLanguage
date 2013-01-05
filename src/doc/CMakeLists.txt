@@ -6,6 +6,6 @@ install (FILES ${public_docs} DESTINATION ${CMAKE_INSTALL_PREFIX}/share/openshad
 install ( FILES ${PROJECT_SOURCE_DIR}/../LICENSE
                 ${PROJECT_SOURCE_DIR}/../INSTALL
                 ${PROJECT_SOURCE_DIR}/../CHANGES
-                ${PROJECT_SOURCE_DIR}/../README
+                ${PROJECT_SOURCE_DIR}/../README.md
           DESTINATION ${CMAKE_INSTALL_PREFIX}/share/openshadinglanguage )
 
