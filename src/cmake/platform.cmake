@@ -1,8 +1,9 @@
 ###########################################################################
 # Figure out what platform we're on, and set some variables appropriately
 
-# Building could happen from chroot,
-# so we can not rely on CMAKE_SYSTEM_PROCESSOR
+# CMAKE_SYSTEM_PROCESSOR should not be used because it indicates the platform
+# we are building on, but when cross compiling or using a chroot this is not
+# what we want to use
 if ("${CMAKE_SIZEOF_VOID_P}" EQUAL "8")
     set (SYSTEM_PROCESSOR "x86_64")
 else()
@@ -22,9 +23,6 @@ if (UNIX)
             set (platform "linux64")
             set (CXXFLAGS "${CXXFLAGS} -DLINUX64")
         endif ()
-    elseif (${CMAKE_SYSTEM_NAME} STREQUAL "FreeBSD")
-        set (platform "FreeBSD")
-        set (CXXFLAGS "${CXXFLAGS} -DFREEBSD")
     endif ()
     if (APPLE)
         message (STATUS "Apple!")

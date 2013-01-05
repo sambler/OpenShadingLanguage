@@ -5,31 +5,26 @@ LINK_ILMBASE ( testshade )
 TARGET_LINK_LIBRARIES ( testshade oslexec oslcomp oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
 INSTALL ( TARGETS testshade RUNTIME DESTINATION bin )
 
+# The 'libtestshade' library
 if (BUILDSTATIC)
-	ADD_LIBRARY ( "libtestshade" STATIC ${testshade_srcs} )
-	TARGET_LINK_LIBRARIES (libtestshade oslexec oslcomp oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} )
-	SET_TARGET_PROPERTIES (libtestshade PROPERTIES PREFIX "")
-
-	INSTALL ( TARGETS libtestshade LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+    ADD_LIBRARY ( "libtestshade" STATIC ${testshade_srcs} )
 else ()
-	# The 'libtestshade' dynamic library
-	ADD_LIBRARY ("libtestshade" SHARED ${testshade_srcs})
-	TARGET_LINK_LIBRARIES (libtestshade oslexec oslcomp oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} )
-	SET_TARGET_PROPERTIES (libtestshade PROPERTIES PREFIX "")
-	SET_TARGET_PROPERTIES(libtestshade PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
+    ADD_LIBRARY ( "libtestshade" SHARED ${testshade_srcs} )
+endif ()
 
-	INSTALL (TARGETS libtestshade
-	#         RUNTIME DESTINATION "${BINDIR}" COMPONENT user
-			 LIBRARY DESTINATION lib 
-	#COMPONENT user
-	#         ARCHIVE DESTINATION "${LIBDIR}" COMPONENT developer
-	)
+TARGET_LINK_LIBRARIES (libtestshade oslexec oslcomp oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} )
+SET_TARGET_PROPERTIES (libtestshade PROPERTIES PREFIX "")
+
+if (BUILDSTATIC)
+    INSTALL ( TARGETS libtestshade LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+else ()
+    INSTALL (TARGETS libtestshade LIBRARY DESTINATION lib )
 endif ()
 
 # The 'testshade_dso' executable
 ADD_EXECUTABLE ( testshade_dso testshade_dso.cpp )
 LINK_ILMBASE ( testshade_dso )
-TARGET_LINK_LIBRARIES ( testshade_dso ${OPENIMAGEIO_LIBRARY} ${CMAKE_DL_LIBS} ${Boost_LIBRARIES})
-#oslexec oslcomp oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} )
+TARGET_LINK_LIBRARIES ( testshade_dso ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} )
+#oslexec oslcomp oslquery ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
 INSTALL ( TARGETS testshade_dso RUNTIME DESTINATION bin )
 

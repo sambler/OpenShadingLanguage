@@ -1,22 +1,23 @@
 SET ( liboslexec_srcs
           shadingsys.cpp closure.cpp
+          emissive.cpp background.cpp debug.cpp dictionary.cpp
+          vol_subsurface.cpp
+          context.cpp gabornoise.cpp instance.cpp 
+          loadshader.cpp master.cpp 
+          opcolor.cpp 
+          opmessage.cpp opnoise.cpp 
+          opspline.cpp opstring.cpp
+          oslexec.cpp osoreader.cpp
+          pointcloud.cpp rendservices.cpp 
+          constfold.cpp runtimeoptimize.cpp typespec.cpp
+          lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
+          opclosure.cpp builtin_closures.cpp
+          llvm_gen.cpp llvm_instance.cpp llvm_util.cpp
           bsdf.cpp bsdf_diffuse.cpp bsdf_microfacet.cpp bsdf_phong.cpp
           bsdf_westin.cpp bsdf_ashikhmin_velvet.cpp
           bsdf_cloth_fncs.cpp bsdf_cloth.cpp bsdf_cloth_specular.cpp
           bsdf_reflection.cpp bsdf_refraction.cpp bsdf_transparent.cpp bsdf_ward.cpp
           bssrdf.cpp bsdf_hair.cpp bsdf_fakefur.cpp
-          emissive.cpp background.cpp debug.cpp dictionary.cpp
-          vol_subsurface.cpp
-          context.cpp gabornoise.cpp instance.cpp 
-          loadshader.cpp master.cpp 
-          opcolor.cpp opcloud.cpp
-          opmessage.cpp opnoise.cpp 
-          opspline.cpp opstring.cpp
-          oslexec.cpp osoreader.cpp
-          rendservices.cpp runtimeoptimize.cpp typespec.cpp
-          lpexp.cpp lpeparse.cpp automata.cpp accum.cpp
-          opclosure.cpp builtin_closures.cpp
-          llvm_gen.cpp llvm_instance.cpp llvm_util.cpp
     )
 
 # oslcomp symbols used in oslexec
@@ -29,9 +30,8 @@ if (NOT BUILDSTATIC)
           ../liboslcomp/typecheck.cpp
     )
 
-    add_definitions ( -Doslcomp_EXPORTS)
+    add_definitions ( -Doslcomp_EXPORTS )
 endif ()
-
 
 include_directories ( ${CMAKE_SOURCE_DIR}/liboslcomp )
 
@@ -53,6 +53,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     SET ( ${srclist} ${${srclist}} ${llvm_bc_cpp} )
     EXEC_PROGRAM ( ${LLVM_DIRECTORY}/bin/llvm-config ARGS --cxxflags OUTPUT_VARIABLE LLVM_COMPILE_FLAGS )
     set (LLVM_COMPILE_FLAGS "${LLVM_COMPILE_FLAGS} -D__STDC_LIMIT_MACROS -D__STDC_CONSTANT_MACROS -O3 --combine")
+    LIST (APPEND LLVM_COMPILE_FLAGS "-I${ILMBASE_INCLUDE_DIR}")
     if (OSL_NAMESPACE)
         LIST (APPEND LLVM_COMPILE_FLAGS "-DOSL_NAMESPACE=${OSL_NAMESPACE}")
     endif ()
@@ -86,7 +87,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       -I${CMAKE_CURRENT_SOURCE_DIR}
       -I${CMAKE_SOURCE_DIR}/include
       -I${CMAKE_BINARY_DIR}/include
-      -I${OPENIMAGEIO_INCLUDES} -I${ILMBASE_INCLUDE_AREA}
+      -I${OPENIMAGEIO_INCLUDES} -I${ILMBASE_INCLUDE_DIR}
       -I${Boost_INCLUDE_DIRS} -I${TBB_INCLUDES} -O3 -S -emit-llvm -o ${llvm_asm} ${llvm_src}
 
       COMMAND ${LLVM_DIRECTORY}/bin/llvm-as -f -o ${llvm_bc} ${llvm_asm}
@@ -96,11 +97,11 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
 ENDMACRO ( )
 
-if (NOT MSVC)
+if (NOT WIN32)
     LLVM_COMPILE ( llvm_ops.cpp liboslexec_srcs )
 else ()
-    # With MSVC, we don't compile llvm_ops.cpp to LLVM bitcode, due to
-    # clang being unable to compile MSVC C++ header files at this time.
+    # With MSVC/Mingw, we don't compile llvm_ops.cpp to LLVM bitcode, due
+    # to clang being unable to compile MSVC C++ header files at this time.
     # Instead it is part of the regular build process.
     ADD_DEFINITIONS (-DOSL_LLVM_NO_BITCODE)
     SET (liboslexec_srcs ${liboslexec_srcs} llvm_ops.cpp)
@@ -108,40 +109,32 @@ endif ()
 
 if (BUILDSTATIC)
     ADD_LIBRARY ( oslexec STATIC ${liboslexec_srcs} )
-    TARGET_LINK_LIBRARIES ( oslexec
-                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                            ${OPENIMAGEIO_LIBRARY}
-                            ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
-    ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
-    LINK_ILMBASE ( oslexec )
-
-    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
-
-    add_definitions(-DBUILD_STATIC=1)
+    ADD_DEFINITIONS (-DBUILD_STATIC=1)
 else ()
 ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
+endif ()
+
 TARGET_LINK_LIBRARIES ( oslexec
                         ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
                         ${OPENIMAGEIO_LIBRARY}
+                        ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
                         ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
                         ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
 ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
 LINK_ILMBASE ( oslexec )
-    SET_TARGET_PROPERTIES(oslexec PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
 
-    INSTALL ( TARGETS oslexec DESTINATION lib )
+if (BUILDSTATIC)
+    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+else ()
+    INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib )
 endif ()
 
-
 # Unit tests
-if (BUILD_TESTING)
 add_executable (closure_test closure_test.cpp)
 add_executable (accum_test accum_test.cpp)
-target_link_libraries ( closure_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-target_link_libraries ( accum_test oslexec ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+target_link_libraries ( closure_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} )
+target_link_libraries ( accum_test oslexec oslcomp ${Boost_LIBRARIES} ${CMAKE_DL_LIBS} ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES} )
 link_ilmbase (closure_test)
 link_ilmbase (accum_test)
 add_test (unit_closure ${CMAKE_BINARY_DIR}/liboslexec/closure_test)
 add_test (unit_accum ${CMAKE_BINARY_DIR}/liboslexec/accum_test)
-endif ()

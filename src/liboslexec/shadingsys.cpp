@@ -42,9 +42,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include "OpenImageIO/dassert.h"
 #include "OpenImageIO/thread.h"
 #include "OpenImageIO/filesystem.h"
-#if OIIO_VERSION >= 1100
 # include "OpenImageIO/optparser.h"
-#endif
 
 using namespace OSL;
 using namespace OSL::pvt;
@@ -54,31 +52,15 @@ using namespace OSL::pvt;
 #undef RGB
 #endif
 
-void dummy_osl_shadeop_llvm_ops();
-void dummy_osl_shadeop_osl_closure();
-void dummy_osl_shadeop_osl_cloud();
-void dummy_osl_shadeop_osl_message();
-void dummy_osl_shadeop_osl_noise();
-void dummy_osl_shadeop_osl_spline();
-void dummy_osl_shadeop_osl_string();
-
 OSL_NAMESPACE_ENTER
+
+
 
 ShadingSystem *
 ShadingSystem::create (RendererServices *renderer,
                        TextureSystem *texturesystem,
                        ErrorHandler *err)
 {
-#ifdef OSL_LLVM_NO_BITCODE
-    dummy_osl_shadeop_llvm_ops();
-    dummy_osl_shadeop_osl_closure();
-    dummy_osl_shadeop_osl_cloud();
-    dummy_osl_shadeop_osl_message();
-    dummy_osl_shadeop_osl_noise();
-    dummy_osl_shadeop_osl_spline();
-    dummy_osl_shadeop_osl_string();
-#endif
-
     // If client didn't supply an error handler, just use the default
     // one that echoes to the terminal.
     if (! err) {
@@ -124,25 +106,31 @@ bool
 ShadingSystem::convert_value (void *dst, TypeDesc dsttype,
                               const void *src, TypeDesc srctype)
 {
-    // Just copy equivalent types
-    if (equivalent (dsttype, srctype)) {
-        if (dst && src) {
-            size_t size = dsttype.size();
-            if (size == sizeof(float))    // common case: float/int copy
-                *(float *)dst = *(const float *)src;
-            else
-                memcpy (dst, src, dsttype.size());  // otherwise, memcpy
+    int tmp_int;
+    if (srctype == TypeDesc::UINT8) {
+        // uint8 src: Up-convert the source to int
+        if (src) {
+            tmp_int = *(const unsigned char *)src;
+            src = &tmp_int;
         }
-        return true;
+        srctype = TypeDesc::TypeInt;
     }
 
+    float tmp_float;
     if (srctype == TypeDesc::TypeInt && dsttype.basetype == TypeDesc::FLOAT) {
-        if (dst && src) {
-            // int -> any-float-based ... up-convert to float and recurse
-            float f = (float) (*(const int *)src);
-            return convert_value (dst, dsttype, &f, TypeDesc::TypeFloat);
+        // int -> float-based : up-convert the source to float
+        if (src) {
+            tmp_float = (float) (*(const int *)src);
+            src = &tmp_float;
         }
-        return convert_value (NULL, dsttype, NULL, TypeDesc::TypeFloat);
+        srctype = TypeDesc::TypeFloat;
+    }
+
+    // Just copy equivalent types
+    if (equivalent (dsttype, srctype)) {
+        if (dst && src)
+            memcpy (dst, src, dsttype.size());
+        return true;
     }
 
     if (srctype == TypeDesc::TypeFloat) {
@@ -266,27 +254,30 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     : m_renderer(renderer), m_texturesys(texturesystem), m_err(err),
       m_statslevel (0), m_lazylayers (true),
       m_lazyglobals (false),
-      m_clearmemory (false), m_rebind (false), m_debugnan (false),
+      m_clearmemory (false), m_debugnan (false),
       m_lockgeom_default (false), m_strict_messages(true),
       m_range_checking(true), m_unknown_coordsys_error(true),
-      m_greedyjit(false),
+      m_greedyjit(false), m_countlayerexecs(false),
       m_optimize (2),
       m_opt_constant_param(true), m_opt_constant_fold(true),
       m_opt_stale_assign(true), m_opt_elide_useless_ops(true),
       m_opt_elide_unconnected_outputs(true),
       m_opt_peephole(true), m_opt_coalesce_temps(true),
-      m_opt_assign(true),
+      m_opt_assign(true), m_opt_mix(true), m_opt_merge_instances(true),
+      m_opt_fold_getattribute(true),
       m_optimize_nondebug(false),
       m_llvm_optimize(0),
       m_debug(false), m_llvm_debug(false),
       m_commonspace_synonym("world"),
       m_colorspace("Rec709"),
       m_max_local_mem_KB(1024),
+      m_compile_report(false),
       m_in_group (false),
       m_stat_opt_locking_time(0), m_stat_specialization_time(0),
       m_stat_total_llvm_time(0),
       m_stat_llvm_setup_time(0), m_stat_llvm_irgen_time(0),
       m_stat_llvm_opt_time(0), m_stat_llvm_jit_time(0),
+      m_stat_inst_merge_time(0),
       m_stat_max_llvm_local_mem(0)
 {
     m_stat_shaders_loaded = 0;
@@ -296,6 +287,8 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     m_stat_instances_compiled = 0;
     m_stat_groups_compiled = 0;
     m_stat_empty_instances = 0;
+    m_stat_merged_inst = 0;
+    m_stat_merged_inst_opt = 0;
     m_stat_empty_groups = 0;
     m_stat_regexes = 0;
     m_stat_preopt_syms = 0;
@@ -311,6 +304,8 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     m_stat_pointcloud_max_results = 0;
     m_stat_pointcloud_failures = 0;
     m_stat_pointcloud_gets = 0;
+    m_stat_pointcloud_writes = 0;
+    m_stat_layers_executed = 0;
 
     m_groups_to_compile_count = 0;
     m_threads_currently_compiling = 0;
@@ -364,21 +359,177 @@ ShadingSystemImpl::ShadingSystemImpl (RendererServices *renderer,
     SetupLLVM ();
 }
 
+
+
+static void
+shading_system_setup_op_descriptors (ShadingSystemImpl::OpDescriptorMap& op_descriptor)
+{
 #define OP(name,ll,f,simp)                                               \
     extern bool llvm_gen_##ll (RuntimeOptimizer &rop, int opnum);        \
-    extern int  constfold_##f (RuntimeOptimizer &rop, int opnum);
-#include "oplist.h"
+    extern int  constfold_##f (RuntimeOptimizer &rop, int opnum);        \
+    op_descriptor[ustring(#name)] = OpDescriptor(#name, llvm_gen_##ll,   \
+                                                   constfold_##f, simp);
+
+    // name          llvmgen              folder         simple
+    OP (aassign,     aassign,             none,          false);
+    OP (abs,         generic,             abs,           true);
+    OP (acos,        generic,             none,          true);
+    OP (add,         add,                 add,           true);
+    OP (and,         andor,               and,           true);
+    OP (area,        area,                none,          true);
+    OP (aref,        aref,                aref,          true);
+    OP (arraycopy,   arraycopy,           none,          false);
+    OP (arraylength, arraylength,         arraylength,   true);
+    OP (asin,        generic,             none,          true);
+    OP (assign,      assign,              none,          true);
+    OP (atan,        generic,             none,          true);
+    OP (atan2,       generic,             none,          true);
+    OP (backfacing,  get_simple_SG_field, none,          true);
+    OP (bitand,      bitwise_binary_op,   none,          true);
+    OP (bitor,       bitwise_binary_op,   none,          true);
+    OP (blackbody,   blackbody,           none,          true);
+    OP (break,       loopmod_op,          none,          false);
+    OP (calculatenormal, calculatenormal, none,          true);
+    OP (ceil,        generic,             ceil,          true);
+    OP (cellnoise,   noise,               none,          true);
+    OP (clamp,       clamp,               clamp,         true);
+    OP (closure,     closure,             none,          true);
+    OP (color,       construct_color,     triple,        true);
+    OP (compassign,  compassign,          compassign,    false);
+    OP (compl,       unary_op,            none,          true);
+    OP (compref,     compref,             compref,       true);
+    OP (concat,      generic,             concat,        true);
+    OP (continue,    loopmod_op,          none,          false);
+    OP (cos,         generic,             none,          true);
+    OP (cosh,        generic,             none,          true);
+    OP (cross,       generic,             none,          true);
+    OP (degrees,     generic,             none,          true);
+    OP (determinant, generic,             none,          true);
+    OP (dict_find,   dict_find,           none,          false);
+    OP (dict_next,   dict_next,           none,          false);
+    OP (dict_value,  dict_value,          none,          false);
+    OP (distance,    generic,             none,          true);
+    OP (div,         div,                 div,           true);
+    OP (dot,         generic,             dot,           true);
+    OP (Dx,          DxDy,                none,          true);
+    OP (Dy,          DxDy,                none,          true);
+    OP (Dz,          Dz,                  none,          true);
+    OP (dowhile,     loop_op,             none,          false);
+    OP (end,         end,                 none,          false);
+    OP (endswith,    generic,             endswith,      true);
+    OP (environment, environment,         none,          true);
+    OP (eq,          compare_op,          eq,            true);
+    OP (erf,         generic,             none,          true);
+    OP (erfc,        generic,             none,          true);
+    OP (error,       printf,              none,          false);
+    OP (exit,        return,              none,          false);
+    OP (exp,         generic,             none,          true);
+    OP (exp2,        generic,             none,          true);
+    OP (expm1,       generic,             none,          true);
+    OP (fabs,        generic,             none,          true);
+    OP (filterwidth, filterwidth,         none,          true);
+    OP (floor,       generic,             floor,          true);
+    OP (fmod,        modulus,             none,          true);
+    OP (for,         loop_op,             none,          false);
+    OP (format,      printf,              format,        true);
+    OP (functioncall, functioncall,       functioncall,  false);
+    OP (ge,          compare_op,          ge,            true);
+    OP (getattribute, getattribute,       getattribute,  false);
+    OP (getmatrix,   getmatrix,           getmatrix,     false);
+    OP (getmessage,  getmessage,          getmessage,    false);
+    OP (gettextureinfo, gettextureinfo,   gettextureinfo,false);
+    OP (gt,          compare_op,          gt,            true);
+    OP (if,          if,                  if,            false);
+    OP (inversesqrt, generic,             none,          true);
+    OP (isconnected, generic,             none,          true);
+    OP (isfinite,    generic,             none,          true);
+    OP (isinf,       generic,             none,          true);
+    OP (isnan,       generic,             none,          true);
+    OP (le,          compare_op,          le,            true);
+    OP (length,      generic,             none,          true);
+    OP (log,         generic,             none,          true);
+    OP (log10,       generic,             none,          true);
+    OP (log2,        generic,             none,          true);
+    OP (logb,        generic,             none,          true);
+    OP (lt,          compare_op,          lt,            true);
+    OP (luminance,   luminance,           none,          true);
+    OP (matrix,      matrix,              matrix,        true);
+    OP (max,         minmax,              max,           true);
+    OP (mxcompassign, mxcompassign,       none,          false);
+    OP (mxcompref,   mxcompref,           none,          true);
+    OP (min,         minmax,              min,           true);
+    OP (mix,         mix,                 mix,           true);
+    OP (mod,         modulus,             none,          true);
+    OP (mul,         mul,                 mul,           true);
+    OP (neg,         neg,                 neg,           true);
+    OP (neq,         compare_op,          neq,           true);
+    OP (noise,       noise,               none,          true);
+    OP (normal,      construct_triple,    triple,        true);
+    OP (normalize,   generic,             none,          true);
+    OP (or,          andor,               or,            true);
+    OP (pnoise,      noise,               none,          true);
+    OP (point,       construct_triple,    triple,        true);
+    OP (pointcloud_search, pointcloud_search, pointcloud_search, false);
+    OP (pointcloud_get, pointcloud_get,   pointcloud_get,false);
+    OP (pointcloud_write, pointcloud_write, none,        false);
+    OP (pow,         generic,             pow,           true);
+    OP (printf,      printf,              none,          false);
+    OP (psnoise,     noise,               none,          true);
+    OP (radians,     generic,             none,          true);
+    OP (raytype,     raytype,             none,          true);
+    OP (regex_match, regex,               none,          false);
+    OP (regex_search, regex,              regex_search,  false);
+    OP (return,      return,              none,          false);
+    OP (round,       generic,             none,          true);
+    OP (setmessage,  setmessage,          setmessage,    false);
+    OP (shl,         bitwise_binary_op,   none,          true);
+    OP (shr,         bitwise_binary_op,   none,          true);
+    OP (sign,        generic,             none,          true);
+    OP (sin,         generic,             none,          true);
+    OP (sincos,      sincos,              none,          false);
+    OP (sinh,        generic,             none,          true);
+    OP (smoothstep,  generic,             none,          true);
+    OP (snoise,      noise,               none,          true);
+    OP (spline,      spline,              none,          true);
+    OP (splineinverse, spline,            none,          true);
+    OP (split,       split,               split,         false);
+    OP (sqrt,        generic,             sqrt,          true);
+    OP (startswith,  generic,             none,          true);
+    OP (step,        generic,             none,          true);
+    OP (strlen,      generic,             strlen,        true);
+    OP (strtoi,      generic,             strtoi,        true);
+    OP (strtof,      generic,             strtof,        true);
+    OP (sub,         sub,                 sub,           true);
+    OP (substr,      generic,             none,          true);
+    OP (surfacearea, get_simple_SG_field, none,          true);
+    OP (tan,         generic,             none,          true);
+    OP (tanh,        generic,             none,          true);
+    OP (texture,     texture,             texture,       true);
+    OP (texture3d,   texture3d,           none,          true);
+    OP (trace,       trace,               none,          false);
+    OP (transform,   transform,           transform,     true);
+    OP (transformn,  transform,           transform,     true);
+    OP (transformv,  transform,           transform,     true);
+    OP (transpose,   generic,             none,          true);
+    OP (trunc,       generic,             none,          true);
+    OP (useparam,    useparam,            useparam,      false);
+    OP (vector,      construct_triple,    triple,        true);
+    OP (warning,     printf,              none,          false);
+    OP (wavelength_color, blackbody,      none,          true);
+    OP (while,       loop_op,             none,          false);
+    OP (xor,         bitwise_binary_op,   none,          true);
 #undef OP
+}
+
+
 
 void
 ShadingSystemImpl::setup_op_descriptors ()
 {
-#define OP(name,ll,f,simp)                                               \
-    m_op_descriptor[ustring(#name)] = OpDescriptor(#name, llvm_gen_##ll, \
-                                                   constfold_##f, simp);
-#include "oplist.h"
-#undef OP
-
+    // This is not a class member function to avoid namespace issues
+    // with function declarations in the function body, when building
+    // with visual studio.
+    shading_system_setup_op_descriptors(m_op_descriptor);
 }
 
 
@@ -430,11 +581,9 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
         return true;                                                    \
     }
 
-#if OIIO_VERSION >= 1100 /* 0.11 and higher only */
     if (name == "options" && type == TypeDesc::STRING) {
         return OIIO::optparser (*(ShadingSystem *)this, *(const char **)val);
     }
-#endif
 
     lock_guard guard (m_mutex);  // Thread safety
     ATTR_SET ("statistics:level", int, m_statslevel);
@@ -442,7 +591,6 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("lazylayers", int, m_lazylayers);
     ATTR_SET ("lazyglobals", int, m_lazyglobals);
     ATTR_SET ("clearmemory", int, m_clearmemory);
-    ATTR_SET ("rebind", int, m_rebind);
     ATTR_SET ("debugnan", int, m_debugnan);
     ATTR_SET ("lockgeom", int, m_lockgeom_default);
     ATTR_SET ("optimize", int, m_optimize);
@@ -454,6 +602,9 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("opt_peephole", int, m_opt_peephole);
     ATTR_SET ("opt_coalesce_temps", int, m_opt_coalesce_temps);
     ATTR_SET ("opt_assign", int, m_opt_assign);
+    ATTR_SET ("opt_mix", int, m_opt_mix);
+    ATTR_SET ("opt_merge_instances", int, m_opt_merge_instances);
+    ATTR_SET ("opt_fold_getattribute", int, m_opt_fold_getattribute);
     ATTR_SET ("optimize_nondebug", int, m_optimize_nondebug);
     ATTR_SET ("llvm_optimize", int, m_llvm_optimize);
     ATTR_SET ("llvm_debug", int, m_llvm_debug);
@@ -461,10 +612,13 @@ ShadingSystemImpl::attribute (const std::string &name, TypeDesc type,
     ATTR_SET ("range_checking", int, m_range_checking);
     ATTR_SET ("unknown_coordsys_error", int, m_unknown_coordsys_error);
     ATTR_SET ("greedyjit", int, m_greedyjit);
+    ATTR_SET ("countlayerexecs", int, m_countlayerexecs);
     ATTR_SET ("max_local_mem_KB", int, m_max_local_mem_KB);
+    ATTR_SET ("compile_report", int, m_compile_report);
     ATTR_SET_STRING ("commonspace", m_commonspace_synonym);
     ATTR_SET_STRING ("debug_groupname", m_debug_groupname);
     ATTR_SET_STRING ("debug_layername", m_debug_layername);
+    ATTR_SET_STRING ("opt_layername", m_opt_layername);
     ATTR_SET_STRING ("only_groupname", m_only_groupname);
 
     // cases for special handling
@@ -517,7 +671,6 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("lazylayers", int, m_lazylayers);
     ATTR_DECODE ("lazyglobals", int, m_lazyglobals);
     ATTR_DECODE ("clearmemory", int, m_clearmemory);
-    ATTR_DECODE ("rebind", int, m_rebind);
     ATTR_DECODE ("debugnan", int, m_debugnan);
     ATTR_DECODE ("lockgeom", int, m_lockgeom_default);
     ATTR_DECODE ("optimize", int, m_optimize);
@@ -529,6 +682,9 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("opt_peephole", int, m_opt_peephole);
     ATTR_DECODE ("opt_coalesce_temps", int, m_opt_coalesce_temps);
     ATTR_DECODE ("opt_assign", int, m_opt_assign);
+    ATTR_DECODE ("opt_mix", int, m_opt_mix);
+    ATTR_DECODE ("opt_merge_instances", int, m_opt_merge_instances);
+    ATTR_DECODE ("opt_fold_getattribute", int, m_opt_fold_getattribute);
     ATTR_DECODE ("optimize_nondebug", int, m_optimize_nondebug);
     ATTR_DECODE ("llvm_optimize", int, m_llvm_optimize);
     ATTR_DECODE ("debug", int, m_debug);
@@ -537,18 +693,23 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("range_checking", int, m_range_checking);
     ATTR_DECODE ("unknown_coordsys_error", int, m_unknown_coordsys_error);
     ATTR_DECODE ("greedyjit", int, m_greedyjit);
+    ATTR_DECODE ("countlayerexecs", int, m_countlayerexecs);
     ATTR_DECODE_STRING ("commonspace", m_commonspace_synonym);
     ATTR_DECODE_STRING ("colorspace", m_colorspace);
     ATTR_DECODE_STRING ("debug_groupname", m_debug_groupname);
     ATTR_DECODE_STRING ("debug_layername", m_debug_layername);
+    ATTR_DECODE_STRING ("opt_layername", m_opt_layername);
     ATTR_DECODE_STRING ("only_groupname", m_only_groupname);
     ATTR_DECODE ("max_local_mem_KB", int, m_max_local_mem_KB);
+    ATTR_DECODE ("compile_report", int, m_compile_report);
 
     ATTR_DECODE ("stat:masters", int, m_stat_shaders_loaded);
     ATTR_DECODE ("stat:groups", int, m_stat_groups);
     ATTR_DECODE ("stat:instances_compiled", int, m_stat_instances_compiled);
     ATTR_DECODE ("stat:groups_compiled", int, m_stat_groups_compiled);
     ATTR_DECODE ("stat:empty_instances", int, m_stat_empty_instances);
+    ATTR_DECODE ("stat:merged_inst", int, m_stat_merged_inst);
+    ATTR_DECODE ("stat:merged_inst_opt", int, m_stat_merged_inst_opt);
     ATTR_DECODE ("stat:empty_groups", int, m_stat_empty_groups);
     ATTR_DECODE ("stat:instances", int, m_stat_groupinstances);
     ATTR_DECODE ("stat:regexes", int, m_stat_regexes);
@@ -564,9 +725,11 @@ ShadingSystemImpl::getattribute (const std::string &name, TypeDesc type,
     ATTR_DECODE ("stat:llvm_irgen_time", float, m_stat_llvm_irgen_time);
     ATTR_DECODE ("stat:llvm_opt_time", float, m_stat_llvm_opt_time);
     ATTR_DECODE ("stat:llvm_jit_time", float, m_stat_llvm_jit_time);
+    ATTR_DECODE ("stat:inst_merge_time", float, m_stat_inst_merge_time);
     ATTR_DECODE ("stat:getattribute_calls", long long, m_stat_getattribute_calls);
     ATTR_DECODE ("stat:pointcloud_searches", long long, m_stat_pointcloud_searches);
     ATTR_DECODE ("stat:pointcloud_gets", long long, m_stat_pointcloud_gets);
+    ATTR_DECODE ("stat:pointcloud_writes", long long, m_stat_pointcloud_writes);
     ATTR_DECODE ("stat:pointcloud_searches_total_results", long long, m_stat_pointcloud_searches_total_results);
     ATTR_DECODE ("stat:pointcloud_max_results", int, m_stat_pointcloud_max_results);
     ATTR_DECODE ("stat:pointcloud_failures", int, m_stat_pointcloud_failures);
@@ -701,7 +864,8 @@ ShadingSystemImpl::message (const std::string &msg)
 
 
 void
-ShadingSystemImpl::pointcloud_stats (int search, int get, int results)
+ShadingSystemImpl::pointcloud_stats (int search, int get, int results,
+                                     int writes)
 {
     spin_lock lock (m_stat_mutex);
     m_stat_pointcloud_searches += search;
@@ -711,6 +875,7 @@ ShadingSystemImpl::pointcloud_stats (int search, int get, int results)
         ++m_stat_pointcloud_failures;
     m_stat_pointcloud_max_results = std::max (m_stat_pointcloud_max_results,
                                               results);
+    m_stat_pointcloud_writes += writes;
 }
 
 
@@ -737,6 +902,8 @@ ShadingSystemImpl::getstats (int level) const
     out << "    Avg instances per group: " 
         << Strutil::format ("%.1f", iperg) << "\n";
     out << "  Shading contexts: " << m_stat_contexts << "\n";
+    if (m_countlayerexecs)
+        out << "  Total layers executed: " << m_stat_layers_executed << "\n";
 
 #if 0
     long long totalexec = m_layers_executed_uncond + m_layers_executed_lazy +
@@ -760,20 +927,27 @@ ShadingSystemImpl::getstats (int level) const
 
     out << "  Compiled " << m_stat_groups_compiled << " groups, "
         << m_stat_instances_compiled << " instances\n";
+    out << "  Merged " << (m_stat_merged_inst+m_stat_merged_inst_opt)
+        << " instances (" << m_stat_merged_inst << " initial, "
+        << m_stat_merged_inst_opt << " after opt) in "
+        << Strutil::timeintervalformat (m_stat_inst_merge_time, 2) << "\n";
+    if (m_stat_instances_compiled > 0)
     out << "  After optimization, " << m_stat_empty_instances 
         << " empty instances ("
-        << (int)(100.0f*m_stat_empty_instances/m_stat_instances_compiled)
-        << "%)\n";
+            << (int)(100.0f*m_stat_empty_instances/m_stat_instances_compiled) << "%)\n";
+    if (m_stat_groups_compiled > 0)
     out << "  After optimization, " << m_stat_empty_groups << " empty groups ("
         << (int)(100.0f*m_stat_empty_groups/m_stat_groups_compiled)<< "%)\n";
+    if (m_stat_instances_compiled > 0 || m_stat_groups_compiled > 0) {
     out << Strutil::format ("  Optimized %llu ops to %llu (%.1f%%)\n",
                             (long long)m_stat_preopt_ops,
                             (long long)m_stat_postopt_ops,
-                            100.0*(double(m_stat_postopt_ops)/double(m_stat_preopt_ops)-1.0));
+                                100.0*(double(m_stat_postopt_ops)/double(std::max(1,(int)m_stat_preopt_ops))-1.0));
     out << Strutil::format ("  Optimized %llu symbols to %llu (%.1f%%)\n",
                             (long long)m_stat_preopt_syms,
                             (long long)m_stat_postopt_syms,
-                            100.0*(double(m_stat_postopt_syms)/double(m_stat_preopt_syms)-1.0));
+                                100.0*(double(m_stat_postopt_syms)/double(std::max(1,(int)m_stat_preopt_syms))-1.0));
+    }
     out << "  Runtime optimization cost: "
         << Strutil::timeintervalformat (m_stat_optimization_time, 2) << "\n";
     out << "    locking:                   "
@@ -800,13 +974,16 @@ ShadingSystemImpl::getstats (int level) const
         out << "     (fail time "
             << Strutil::timeintervalformat (m_stat_getattribute_fail_time, 2) << ")\n";
     }
-    if (m_stat_pointcloud_searches) {
+    if (m_stat_pointcloud_searches || m_stat_pointcloud_writes) {
+        out << "  Pointcloud operations:\n";
         out << "  pointcloud_search calls: " << m_stat_pointcloud_searches << "\n";
         out << "      max query results: " << m_stat_pointcloud_max_results << "\n";
-        out << "      average query results: " 
-            << Strutil::format ("%.1f", (double)m_stat_pointcloud_searches_total_results/(double)m_stat_pointcloud_searches) << "\n";
+        double avg = m_stat_pointcloud_searches ? 
+            (double)m_stat_pointcloud_searches_total_results/(double)m_stat_pointcloud_searches : 0.0;
+        out << "      average query results: " << Strutil::format ("%.1f", avg) << "\n";
         out << "      failures: " << m_stat_pointcloud_failures << "\n";
         out << "  pointcloud_get calls: " << m_stat_pointcloud_gets << "\n";
+        out << "    pointcloud_write calls: " << m_stat_pointcloud_writes << "\n";
     }
     out << "  Memory total: " << m_stat_memory.memstat() << '\n';
     out << "    Master memory: " << m_stat_mem_master.memstat() << '\n';
@@ -913,11 +1090,14 @@ ShadingSystemImpl::ShaderGroupEnd (void)
                 inst->run_lazily (false);
             }
         }
+
+        merge_instances (m_curattrib->shadergroup (m_group_use));
     }
 
     m_in_group = false;
     m_group_use = ShadUseUnknown;
     m_group_name.clear ();
+
     return true;
 }
 
@@ -1304,7 +1484,7 @@ const ClosureRegistry::ClosureEntry *ClosureRegistry::get_entry(ustring name)con
 OSL_NAMESPACE_EXIT
 
 
-#if !defined(BUILD_STATIC)
+#ifndef BUILD_STATIC
 // Symbols needed to resolve some linkage issues because we pull some
 // components in from liboslcomp.
 int oslparse() { return 0; }
@@ -1313,5 +1493,4 @@ public:
     oslFlexLexer (std::istream *in, std::ostream *out);
 };
 oslFlexLexer::oslFlexLexer (std::istream *in, std::ostream *out) { }
-
 #endif

@@ -10,7 +10,6 @@ set (OSO_FILE_VERSION_MAJOR 1)
 set (OSO_FILE_VERSION_MINOR 0)
 
 set (BUILDSTATIC OFF CACHE BOOL "Build static library instead of shared")
-set (LINKSTATIC OFF CACHE BOOL "Link with static external libraries when possible")
 
 
 cmake_minimum_required (VERSION 2.6)
@@ -50,8 +49,12 @@ if (NOT CMAKE_COMPILER_IS_CLANG)
 endif ()
 
 ## turn on more detailed warnings and consider warnings as errors
+set (STOP_ON_WARNING ON CACHE BOOL "Stop building if there are any compiler warnings")
 if (NOT MSVC)
-    add_definitions ("-Wall -Werror")
+    add_definitions ("-Wall")
+    if (STOP_ON_WARNING)
+        add_definitions ("-Werror")
+    endif ()
 endif ()
 
 ## disable RTTI
@@ -59,14 +62,10 @@ endif ()
 ##   if you find the need to turn this on, as OSL classes
 ##   extending LLVM ones will cause linker errors (unless you
 ##   rebuild LLVM with rtti enabled)
-
-if (NOT MSVC)
-set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti" )
+if (MSVC)
+    set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-" )
 else ()
-	set ( CMAKE_CXX_FLAGS_DEBUG "/D_DEBUG /MTd /Zi /Ob0 /Od /RTC1 /GR-" )
-	set ( CMAKE_CXX_FLAGS_MINSIZEREL     "/MT /O1 /Ob1 /D NDEBUG /GR-" )
-	set ( CMAKE_CXX_FLAGS_RELEASE        "/MT /O2 /Ob2 /D NDEBUG /GR-" )
-	set ( CMAKE_CXX_FLAGS_RELWITHDEBINFO "/MT /Zi /O2 /Ob1 /D NDEBUG /GR-" )
+set ( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti" )
 endif()
 
 # For gcc < 4.3, Boost needs some extra help detecting that we've
@@ -75,6 +74,12 @@ if (CMAKE_COMPILER_IS_GNUCC AND GCC_VERSION VERSION_LESS 4.3)
     add_definitions ("-DBOOST_NO_RTTI")
     add_definitions ("-DBOOST_NO_TYPEID")
 endif ()
+
+# Needed for static boost libraries on Windows
+if (WIN32 AND Boost_USE_STATIC_LIBS)
+    add_definitions ("-DBOOST_ALL_NO_LIB")
+    add_definitions ("-DBOOST_THREAD_USE_LIB")
+endif()
 
 if (CMAKE_COMPILER_IS_CLANG OR CMAKE_COMPILER_IS_GNUCC)
     # CMake doesn't automatically know what do do with
@@ -107,6 +112,7 @@ if (WIN32)
 else ()
     set (USE_BOOST_WAVE OFF CACHE BOOL "Use Boost Wave as preprocessor")
 endif ()
+set (USE_PARTIO ON CACHE BOOL "Use Partio if found")
 set (HIDE_SYMBOLS OFF CACHE BOOL "Hide symbols not in the public API")
 
 if (LLVM_NAMESPACE)
@@ -175,13 +181,10 @@ add_subdirectory (liboslquery)
 add_subdirectory (liboslexec)
 
 add_subdirectory (oslc)
-add_subdirectory (oslinfo)
 add_subdirectory (shaders)
-
-if (BUILD_TESTING)
+add_subdirectory (oslinfo)
 add_subdirectory (testshade)
 add_subdirectory (testrender)
-endif ()
 
 add_subdirectory (include)
 add_subdirectory (doc)
@@ -191,7 +194,6 @@ add_subdirectory (doc)
 #########################################################################
 # Testing
 
-if (BUILD_TESTING)
 # Make a copy of the testsuite into the build area
 if (DEFINED CMAKE_VERSION AND NOT CMAKE_VERSION VERSION_LESS 2.8)
     file (COPY ${PROJECT_SOURCE_DIR}/../testsuite
@@ -241,17 +243,19 @@ TESTSUITE ( arithmetic array array-derivs array-range
             blackbody blendmath breakcont bug-locallifetime
             cellnoise closure color comparison
             component-range const-array-params debugnan
-            derivs derivs-muldiv-clobber error-dupes exponential
+            derivs derivs-muldiv-clobber error-dupes exit exponential
             function-earlyreturn function-simple function-outputelem
             geomath getsymbol-nonheap gettextureinfo hyperb
-            ieee_fp if incdec initops intbits
+            ieee_fp if incdec initops intbits isconnected
             layers layers-Ciassign layers-lazy
-            logic loop matrix message miscmath missing-shader
+            logic loop matrix message metadata-braces miscmath missing-shader
             noise noise-cell
             noise-gabor noise-gabor2d-filter noise-gabor3d-filter
             noise-perlin noise-uperlin
             pnoise pnoise-cell pnoise-gabor pnoise-perlin pnoise-uperlin
+            oslc-err-arrayindex oslc-err-closuremul oslc-err-intoverflow
             oslc-err-noreturn oslc-err-paramdefault
+            pointcloud pointcloud-fold
             raytype render-background render-bumptest render-cornell render-furnace-diffuse
             render-microfacet render-oren-nayar render-veachmis render-ward
             shortcircuit spline splineinverse string 
@@ -262,9 +266,9 @@ TESTSUITE ( arithmetic array array-derivs array-range
             texture-firstchannel texture-interp texture-simple
             texture-smallderivs texture-swirl
             texture-width texture-withderivs texture-wrap
-            transform transformc trig typecast vecctr vector
+            transform transformc trig typecast
+            unknown-instruction vecctr vector
             wavelength_color xml )
-endif ()
 
 
 
@@ -282,7 +286,7 @@ set (CPACK_PACKAGE_FILE_NAME OSL-${OSL_LIBRARY_VERSION_MAJOR}.${OSL_LIBRARY_VERS
 #set (CPACK_PACKAGE_INSTALL_DIRECTORY ${PROJECT_SOURCE_DIR}/..)
 exec_program ("cmake -E copy ${PROJECT_SOURCE_DIR}/../LICENSE ${CMAKE_BINARY_DIR}/License.txt")
 set (CPACK_RESOURCE_FILE_LICENSE "${CMAKE_BINARY_DIR}/License.txt")
-exec_program ("cmake -E copy ${PROJECT_SOURCE_DIR}/../README ${CMAKE_BINARY_DIR}/Readme.txt")
+exec_program ("cmake -E copy ${PROJECT_SOURCE_DIR}/../README.md ${CMAKE_BINARY_DIR}/Readme.txt")
 set (CPACK_RESOURCE_FILE_README "${CMAKE_BINARY_DIR}/Readme.txt")
 set (CPACK_RESOURCE_FILE_WELCOME "${PROJECT_SOURCE_DIR}/doc/Welcome.txt")
 #set (CPACK_PACKAGE_EXECUTABLES I'm not sure what this is for)

@@ -118,7 +118,9 @@ using OIIO::erfcf;
 using OIIO::log2f;
 using OIIO::logbf;
 using OIIO::exp2f;
-#else
+#endif
+
+#ifndef _MSC_VER
 using OIIO::isnan;
 using OIIO::isfinite;
 #endif
@@ -419,12 +421,28 @@ inline Dual2<float> logb (const Dual2<float> &f) {
     return Dual2<float> (safe_logb(f.val()), 0.0, 0.0);
 }
 
+inline float fast_expf(float x) {
+#if defined(__GNU_LIBRARY__) && defined(__GLIBC__ ) && defined(__GLIBC_MINOR__) && __GLIBC__  <= 2 &&  __GLIBC_MINOR__ < 16
+   /// On Linux platforms using glibc < 2.16, the implementation of expf is unreasonably slow
+   /// It is much faster to use the double version instead and cast back to floats
+   return static_cast<float>(std::exp(static_cast<double>(x)));
+#else
+   return std::exp(x);
+#endif
+}
+
+inline Dual2<float> fast_expf(const Dual2<float>& a) {
+   float expa = fast_expf(a.val());
+   return Dual2<float> (expa, expa * a.dx(), expa * a.dy());
+
+}
+
 
 MAKE_UNARY_PERCOMPONENT_OP (log, safe_log, log)
 MAKE_UNARY_PERCOMPONENT_OP (log2, safe_log2, log2)
 MAKE_UNARY_PERCOMPONENT_OP (log10, safe_log10, log10)
 MAKE_UNARY_PERCOMPONENT_OP (logb, safe_logb, logb)
-MAKE_UNARY_PERCOMPONENT_OP (exp, std::exp, exp)
+MAKE_UNARY_PERCOMPONENT_OP (exp, fast_expf, fast_expf)
 MAKE_UNARY_PERCOMPONENT_OP (exp2, exp2f, exp2)
 MAKE_UNARY_PERCOMPONENT_OP (expm1, expm1f, expm1)
 MAKE_BINARY_PERCOMPONENT_OP (pow, safe_pow, pow)
@@ -1094,6 +1112,18 @@ osl_endswith_iss (const char *s, const char *substr)
         return strncmp (s+USTR(s).length()-len, substr, len) == 0;
 }
 
+OSL_SHADEOP int
+osl_strtoi_is (const char *str)
+{
+    return strtol(str, NULL, 10);
+}
+
+OSL_SHADEOP float
+osl_strtof_fs (const char *str)
+{
+    return (float)strtod(str, NULL);
+}
+
 OSL_SHADEOP const char *
 osl_substr_ssii (const char *s, int start, int length)
 {
@@ -1251,9 +1281,7 @@ osl_texture_set_subimage (void *opt, int subimage)
 OSL_SHADEOP void
 osl_texture_set_subimagename (void *opt, const char *subimagename)
 {
-#if OIIO_VERSION >= 10100
     ((TextureOpt *)opt)->subimagename = USTR(subimagename);
-#endif
 }
 
 
@@ -1754,7 +1782,15 @@ osl_naninf_check (int ncomps, const void *vals_, int has_derivs,
         }
 }
 
-void dummy_osl_shadeop_llvm_ops()
-{
-}
 
+#ifdef OSL_LLVM_NO_BITCODE
+OSL_NAMESPACE_ENTER
+namespace pvt {
+
+// This symbol is strictly to force linkage of this file when building
+// static library.
+int llvm_ops_cpp_dummy = 1;
+
+} // end namespace pvt
+OSL_NAMESPACE_EXIT
+#endif

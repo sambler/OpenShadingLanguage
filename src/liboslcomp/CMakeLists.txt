@@ -14,20 +14,19 @@ FILE ( GLOB compiler_headers "*.h" )
 FLEX_BISON ( osllex.l oslgram.y osl liboslcomp_srcs compiler_headers )
 
 if (BUILDSTATIC)
-	ADD_LIBRARY ( oslcomp STATIC ${liboslcomp_srcs} )
-	TARGET_LINK_LIBRARIES ( oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-	LINK_ILMBASE ( oslcomp )
-	
-    INSTALL ( TARGETS oslcomp LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
-
-    add_definitions(-DBUILD_STATIC=1)
+    ADD_LIBRARY ( oslcomp STATIC ${liboslcomp_srcs} )
+    ADD_DEFINITIONS ( -DBUILD_STATIC=1 )
 else ()
 ADD_LIBRARY ( oslcomp SHARED ${liboslcomp_srcs} )
-	TARGET_LINK_LIBRARIES ( oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
-LINK_ILMBASE ( oslcomp )
-    SET_TARGET_PROPERTIES(oslcomp PROPERTIES INSTALL_NAME_DIR @loader_path/../lib)
+endif ()
 
-    INSTALL ( TARGETS oslcomp DESTINATION lib)
+TARGET_LINK_LIBRARIES ( oslcomp ${OPENIMAGEIO_LIBRARY} ${Boost_LIBRARIES} ${CMAKE_DL_LIBS})
+LINK_ILMBASE ( oslcomp )
+
+if (BUILDSTATIC)
+    INSTALL ( TARGETS oslcomp LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
+else ()
+    INSTALL ( TARGETS oslcomp LIBRARY DESTINATION lib )
 endif ()
 
 IF ( USE_BOOST_WAVE )

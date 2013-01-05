@@ -36,9 +36,22 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 #include <cstdarg>
 
+#include <OpenImageIO/strutil.h>
+#include <OpenImageIO/fmath.h>
+
 #include "oslexec_pvt.h"
 
 #include <boost/regex.hpp>
+
+#define USTR(cstr) (*((ustring *)&cstr))
+
+OSL_NAMESPACE_ENTER
+namespace pvt {
+
+
+// This symbol is strictly to force linkage of this file when building
+// static library.
+int opstring_cpp_dummy = 1;
 
 
 // Heavy lifting of OSL regex operations.
@@ -120,7 +133,21 @@ osl_warning (ShaderGlobals *sg, const char* format_str, ...)
     sg->context->shadingsys().warning (s);
 }
 
-void dummy_osl_shadeop_osl_string()
+
+
+OSL_SHADEOP int
+osl_split (const char *str, ustring *results, const char *sep,
+           int maxsplit, int resultslen)
 {
+    maxsplit = OIIO::clamp (maxsplit, 0, resultslen);
+    std::vector<std::string> splits;
+    Strutil::split (USTR(str).string(), splits, USTR(sep).string(), maxsplit);
+    int n = std::min (maxsplit, (int)splits.size());
+    for (int i = 0;  i < n;  ++i)
+        results[i] = ustring(splits[i]);
+    return n;
 }
 
+
+} // end namespace pvt
+OSL_NAMESPACE_EXIT

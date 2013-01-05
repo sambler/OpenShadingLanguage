@@ -98,6 +98,7 @@ namespace pvt {
 // forward definitions
 class ShadingSystemImpl;
 class ShaderInstance;
+class ShaderGroup;
 typedef shared_ptr<ShaderInstance> ShaderInstanceRef;
 class Dictionary;
 class RuntimeOptimizer;
@@ -131,7 +132,7 @@ struct OpDescriptor {
 
 
 // Prefix for OSL shade up declarations, so LLVM can find them
-#define OSL_SHADEOP extern "C" OSL_DLL_EXPORT
+#define OSL_SHADEOP extern "C" OSLEXECPUBLIC
 
 
 
@@ -283,6 +284,10 @@ public:
     ///
     const std::string &shadername () const { return m_shadername; }
 
+    /// Where is the location that holds the parameter's default value?
+    void *param_default_storage (int index);
+    const void *param_default_storage (int index) const;
+
 private:
     ShadingSystemImpl &m_shadingsys;    ///< Back-ptr to the shading system
     ShaderType m_shadertype;            ///< Type of shader
@@ -321,6 +326,11 @@ struct ConnectedParam {
     ConnectedParam () : param(-1), arrayindex(-1), channel(-1) { }
 
     bool valid () const { return (param >= 0); }
+
+    bool operator== (const ConnectedParam &p) const {
+        return param == p.param && arrayindex == p.arrayindex &&
+            channel == p.channel && type == p.type;
+    }
 };
 
 
@@ -336,6 +346,9 @@ struct Connection {
                 const ConnectedParam &dstcon)
         : srclayer (srclay), src (srccon), dst (dstcon)
     { }
+    bool operator== (const Connection &c) const {
+        return srclayer == c.srclayer && src == c.src && dst == c.dst;
+    }
 };
 
 
@@ -397,10 +410,9 @@ public:
         return index >= 0 ? master()->symbol(index) : NULL;
     }
 
-    /// Estimate how much to round the required heap size up if npoints
-    /// is odd, to account for getting the desired alignment for each
-    /// symbol.
-    size_t heapround ();
+    /// Where is the location that holds the parameter's instance value?
+    void *param_storage (int index);
+    const void *param_storage (int index) const;
 
     /// Add a connection
     ///
@@ -414,6 +426,7 @@ public:
     /// Return a reference to the i-th connection to an earlier layer.
     ///
     const Connection & connection (int i) const { return m_connections[i]; }
+    Connection & connection (int i) { return m_connections[i]; }
 
     /// Reference to the connection list.
     ///
@@ -454,6 +467,18 @@ public:
     int firstparam () const { return m_firstparam; }
     int lastparam () const { return m_lastparam; }
 
+    /// Return a begin/end Symbol* pair for the set of param symbols
+    /// that is suitable to pass as a range for BOOST_FOREACH.
+    friend std::pair<Symbol *,Symbol *> param_range (ShaderInstance *i) {
+        return std::pair<Symbol*,Symbol*> (&i->m_instsymbols[i->firstparam()],
+                                           &i->m_instsymbols[i->lastparam()]);
+    }
+
+    friend std::pair<const Symbol *,const Symbol *> param_range (const ShaderInstance *i) {
+        return std::pair<const Symbol*,const Symbol*> (&i->m_instsymbols[i->firstparam()],
+                                                       &i->m_instsymbols[i->lastparam()]);
+    }
+
     int Psym () const { return m_Psym; }
     int Nsym () const { return m_Nsym; }
 
@@ -492,12 +517,21 @@ public:
                              m_connected_down(false) { }
         void valuesource (Symbol::ValueSource v) { m_valuesource = v; }
         Symbol::ValueSource valuesource () const { return (Symbol::ValueSource) m_valuesource; }
+        const char *valuesourcename () const { return Symbol::valuesourcename(valuesource()); }
         bool connected_down () const { return m_connected_down; }
         void connected_down (bool c) { m_connected_down = c; }
+        friend bool equivalent (const SymOverrideInfo &a, const SymOverrideInfo &b) {
+            return a.valuesource() == b.valuesource();
+        }
     };
     typedef std::vector<SymOverrideInfo> SymOverrideInfoVec;
 
     SymOverrideInfo *instoverride (int i) { return &m_instoverrides[i]; }
+    const SymOverrideInfo *instoverride (int i) const { return &m_instoverrides[i]; }
+
+    /// Are two shader instances (assumed to be in the same group)
+    /// equivalent, in that they may be merged into a single instance?
+    bool mergeable (const ShaderInstance &b, const ShaderGroup &g) const;
 
 private:
     ShaderMaster::ref m_master;         ///< Reference to the master
@@ -528,12 +562,10 @@ private:
 /// with each iteration providing a Symbol& to symbolref.  Use like this:
 ///        FOREACH_PARAM (Symbol &s, inst) { ... stuff with s... }
 ///
+#define FOREACH_PARAM(symboldecl,inst) \
+    BOOST_FOREACH (symboldecl, param_range(inst))
 
-#define FOREACH_PARAM_BEGIN(symboldecl,inst) \
-	for(int pi = inst->firstparam(); pi < inst->lastparam(); pi++) { \
-		symboldecl = *(inst->symbol(pi));
 
-#define FOREACH_PARAM_END }
 
 /// A ShaderGroup consists of one or more layers (each of which is a
 /// ShaderInstance), and the connections among them.
@@ -658,7 +690,7 @@ private:
 class OSLEXECPUBLIC ShadingSystemImpl : public ShadingSystem
 {
 public:
-    ShadingSystemImpl (RendererServices *renderer=NULL,
+    OSLEXECPUBLIC ShadingSystemImpl (RendererServices *renderer=NULL,
                        TextureSystem *texturesystem=NULL,
                        ErrorHandler *err=NULL);
     virtual ~ShadingSystemImpl ();
@@ -666,6 +698,8 @@ public:
     virtual bool attribute (const std::string &name, TypeDesc type, const void *val);
     virtual bool getattribute (const std::string &name, TypeDesc type, void *val);
 
+    virtual bool LoadMemoryCompiledShader (const char *shadername,
+                                   const char *buffer);
     virtual bool Parameter (const char *name, TypeDesc t, const void *val);
     virtual bool Shader (const char *shaderusage,
                          const char *shadername=NULL,
@@ -674,8 +708,6 @@ public:
     virtual bool ShaderGroupEnd (void);
     virtual bool ConnectShaders (const char *srclayer, const char *srcparam,
                                  const char *dstlayer, const char *dstparam);
-    virtual bool LoadMemoryShader (const char *shadername,
-                                   const char *buffer);
     virtual ShadingAttribStateRef state ();
     virtual void clear_state ();
 
@@ -736,9 +768,7 @@ public:
     ///
     TextureSystem *texturesys () const { return m_texturesys; }
 
-    bool allow_rebind () const { return m_rebind; }
-
-    bool debug_nan () const { return m_debugnan; }
+     bool debug_nan () const { return m_debugnan; }
     bool lockgeom_default () const { return m_lockgeom_default; }
     bool strict_messages() const { return m_strict_messages; }
     bool range_checking() const { return m_range_checking; }
@@ -746,8 +776,14 @@ public:
     int optimize () const { return m_optimize; }
     int llvm_optimize () const { return m_llvm_optimize; }
     int llvm_debug () const { return m_llvm_debug; }
+    bool fold_getattribute () { return m_opt_fold_getattribute; }
 
     ustring commonspace_synonym () const { return m_commonspace_synonym; }
+
+    /// Look within the group for separate nodes that are actually
+    /// duplicates of each other and combine them.  Return the number of
+    /// instances that were eliminated.
+    int merge_instances (ShaderGroup &group, bool post_opt = false);
 
     /// The group is set and won't be changed again; take advantage of
     /// this by optimizing the code knowing all our instance parameters
@@ -804,7 +840,7 @@ public:
             return NULL;
     }
 
-    void pointcloud_stats (int search, int get, int results);
+    void pointcloud_stats (int search, int get, int results, int writes=0);
 
 private:
     void printstats () const;
@@ -861,13 +897,13 @@ private:
     bool m_lazylayers;                    ///< Evaluate layers on demand?
     bool m_lazyglobals;                   ///< Run lazily even if globals write?
     bool m_clearmemory;                   ///< Zero mem before running shader?
-    bool m_rebind;                        ///< Allow rebinding?
     bool m_debugnan;                      ///< Root out NaN's?
     bool m_lockgeom_default;              ///< Default value of lockgeom
     bool m_strict_messages;               ///< Strict checking of message passing usage?
     bool m_range_checking;                ///< Range check arrays & components?
     bool m_unknown_coordsys_error;        ///< Error to use unknown xform name?
     bool m_greedyjit;                     ///< JIT as much as we can?
+    bool m_countlayerexecs;               ///< Count number of layer execs?
     int m_optimize;                       ///< Runtime optimization level
     bool m_opt_constant_param;            ///< Turn instance params into const?
     bool m_opt_constant_fold;             ///< Allow constant folding?
@@ -877,12 +913,16 @@ private:
     bool m_opt_peephole;                  ///< Do some peephole optimizations?
     bool m_opt_coalesce_temps;            ///< Coalesce temporary variables?
     bool m_opt_assign;                    ///< Do various assign optimizations?
+    bool m_opt_mix;                       ///< Special 'mix' optimizations
+    bool m_opt_merge_instances;           ///< Merge identical instances?
+    bool m_opt_fold_getattribute;         ///< Constant-fold getattribute()?
     bool m_optimize_nondebug;             ///< Fully optimize non-debug!
     int m_llvm_optimize;                  ///< OSL optimization strategy
     int m_debug;                          ///< Debugging output
     int m_llvm_debug;                     ///< More LLVM debugging output
     ustring m_debug_groupname;            ///< Name of sole group to debug
     ustring m_debug_layername;            ///< Name of sole layer to debug
+    ustring m_opt_layername;              ///< Name of sole layer to optimize
     ustring m_only_groupname;             ///< Name of sole group to compile
     std::string m_searchpath;             ///< Shader search path
     std::vector<std::string> m_searchpath_dirs; ///< All searchpath dirs
@@ -890,6 +930,7 @@ private:
     std::vector<ustring> m_raytypes;      ///< Names of ray types
     ustring m_colorspace;                 ///< What RGB colors mean
     int m_max_local_mem_KB;               ///< Local storage can a shader use
+    bool m_compile_report;
 
     // Derived/cached calculations from options:
     Color3 m_Red, m_Green, m_Blue;        ///< Color primaries (xyY)
@@ -918,6 +959,8 @@ private:
     atomic_int m_stat_instances_compiled; ///< Stat: instances compiled
     atomic_int m_stat_groups_compiled;    ///< Stat: groups compiled
     atomic_int m_stat_empty_instances;    ///< Stat: shaders empty after opt
+    atomic_int m_stat_merged_inst;        ///< Stat: number of merged instances
+    atomic_int m_stat_merged_inst_opt;    ///< Stat: merged insts after opt
     atomic_int m_stat_empty_groups;       ///< Stat: groups empty after opt
     atomic_int m_stat_regexes;            ///< Stat: how many regex's compiled
     atomic_int m_stat_preopt_syms;        ///< Stat: pre-optimization symbols
@@ -932,6 +975,7 @@ private:
     double m_stat_llvm_irgen_time;        ///<     llvm IR generation time
     double m_stat_llvm_opt_time;          ///<     llvm IR optimization time
     double m_stat_llvm_jit_time;          ///<     llvm JIT time 
+    double m_stat_inst_merge_time;        ///< Stat: time merging instances
     double m_stat_getattribute_time;      ///< Stat: time spent in getattribute
     double m_stat_getattribute_fail_time; ///< Stat: time spent in getattribute
     atomic_ll m_stat_getattribute_calls;  ///< Stat: Number of getattribute
@@ -940,6 +984,8 @@ private:
     int m_stat_pointcloud_max_results;
     int m_stat_pointcloud_failures;
     long long m_stat_pointcloud_gets;
+    long long m_stat_pointcloud_writes;
+    atomic_ll m_stat_layers_executed;     ///< Total layers executed
 
     int m_stat_max_llvm_local_mem;        ///< Stat: max LLVM local mem
     PeakCounter<off_t> m_stat_memory;     ///< Stat: all shading system memory
@@ -989,11 +1035,16 @@ public:
             delete [] m_blocks[i];
     }
 
-    char * alloc(size_t size) {
-        ASSERT(size < BlockSize);
+    char * alloc(size_t size, size_t alignment=1) {
+        // Fail if beyond allocation limits or senseless alignment
+        if (size > BlockSize || (size % alignment) != 0)
+            return NULL;
+        m_block_offset -= (m_block_offset % alignment); // Fix up alignment
         if (size <= m_block_offset) {
+            // Enough space in current block
             m_block_offset -= size;
         } else {
+            // Need to allocate a new block
             m_current_block++;
             m_block_offset = BlockSize - size;
             if (m_blocks.size() == m_current_block)
@@ -1175,6 +1226,12 @@ public:
 
     PerThreadInfo *thread_info () { return m_threadinfo; }
 
+    void * alloc_scratch (size_t size, size_t align=1) {
+        return m_scratch_pool.alloc (size, align);
+    }
+
+    void incr_layers_executed () { shadingsys().m_stat_layers_executed += 1; }
+
 private:
 
     /// Execute the llvm-compiled shaders for the given use (for example,
@@ -1191,13 +1248,13 @@ private:
     PerThreadInfo *m_threadinfo;        ///< Ptr to our thread's info
     ShadingAttribState *m_attribs;      ///< Ptr to shading attrib state
     std::vector<char> m_heap;           ///< Heap memory
-    size_t m_closures_allotted;         ///< Closure memory allotted
     int m_curuse;                       ///< Current use that we're running
     typedef boost::unordered_map<ustring, boost::regex*, ustringHash> RegexMap;
     RegexMap m_regex_map;               ///< Compiled regex's
     MessageList m_messages;             ///< Message blackboard
 
     SimplePool<20 * 1024> m_closure_pool;
+    SimplePool<64*1024> m_scratch_pool;
 
     Dictionary *m_dictionary;
 

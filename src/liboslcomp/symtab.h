@@ -32,11 +32,9 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #include <vector>
 #include <stack>
 
-/* hack for gcc in old lenny box */
-#if (__GNUC__ < 3) || (__GNUC__ == 4 && __GNUC_MINOR__ < 4)
-# ifdef IF
-# undef IF
-# endif /* IF */
+/* fix for GCC version < 4.4 conflict with boost */
+#ifdef IF
+#undef IF
 #endif
 
 #include <boost/unordered_map.hpp>
