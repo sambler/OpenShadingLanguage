@@ -17,7 +17,7 @@ macro (osl_compile oslsrc objlist headers)
 #    include_directories ( ${CMAKE_CURRENT_BINARY_DIR} )
 #    include_directories ( ${CMAKE_CURRENT_SOURCE_DIR} )
     if (VERBOSE)
-    message (STATUS "cmd: ${CMAKE_CURRENT_BINARY_DIR}/../oslc/oslc ${oslsrc}")
+        message (STATUS "cmd: ${CMAKE_CURRENT_BINARY_DIR}/../oslc/oslc ${oslsrc}")
     endif ()
     add_custom_command (OUTPUT ${osofile}
         COMMAND ${CMAKE_CURRENT_BINARY_DIR}/../oslc/oslc ${oslsrc}
@@ -42,5 +42,5 @@ add_custom_target (shaders ALL
                    SOURCES ${shader_source} ${shader_headers})
 
 install (FILES ${shader_headers} ${shader_source} ${shader_objs}
-         DESTINATION ${CMAKE_INSTALL_PREFIX}/share/openshadinglanguage/shaders)
+         DESTINATION shaders)
 

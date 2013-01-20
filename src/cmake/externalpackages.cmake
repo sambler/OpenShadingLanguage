@@ -89,11 +89,11 @@ endif ()
 
 if (VERBOSE)
     message (STATUS "BOOST_ROOT ${BOOST_ROOT}")
-message (STATUS "Boost found ${Boost_FOUND} ")
+    message (STATUS "Boost found ${Boost_FOUND} ")
     message (STATUS "Boost version      ${Boost_VERSION}")
-message (STATUS "Boost include dirs ${Boost_INCLUDE_DIRS}")
-message (STATUS "Boost library dirs ${Boost_LIBRARY_DIRS}")
-message (STATUS "Boost libraries    ${Boost_LIBRARIES}")
+    message (STATUS "Boost include dirs ${Boost_INCLUDE_DIRS}")
+    message (STATUS "Boost library dirs ${Boost_LIBRARY_DIRS}")
+    message (STATUS "Boost libraries    ${Boost_LIBRARIES}")
 endif ()
 
 include_directories (SYSTEM "${Boost_INCLUDE_DIRS}")
@@ -134,8 +134,8 @@ if (USE_TBB)
         set (TBB_FOUND TRUE)
         add_definitions ("-DUSE_TBB=1")
         if (VERBOSE)
-        message (STATUS "TBB includes = ${TBB_INCLUDES}")
-        message (STATUS "TBB library = ${TBB_LIBRARY}")
+            message (STATUS "TBB includes = ${TBB_INCLUDES}")
+            message (STATUS "TBB library = ${TBB_LIBRARY}")
         endif ()
     else ()
         message (STATUS "TBB not found")
@@ -188,42 +188,42 @@ endif (USE_PARTIO)
 # LLVM library setup
 
 # try to find llvm-config, with a specific version if specified
-if (LLVM_DIRECTORY)
+if(LLVM_DIRECTORY)
   FIND_PROGRAM(LLVM_CONFIG llvm-config-${LLVM_VERSION} HINTS ${LLVM_DIRECTORY}/bin NO_CMAKE_PATH)
   if(NOT LLVM_CONFIG)
     FIND_PROGRAM(LLVM_CONFIG llvm-config HINTS ${LLVM_DIRECTORY}/bin NO_CMAKE_PATH)
   endif()
-else ()
+else()
   FIND_PROGRAM(LLVM_CONFIG llvm-config-${LLVM_VERSION})
   if(NOT LLVM_CONFIG)
     FIND_PROGRAM(LLVM_CONFIG llvm-config)
-endif ()
+  endif()
 endif()
 
 if(NOT LLVM_DIRECTORY OR EXISTS ${LLVM_CONFIG})
-execute_process (COMMAND ${LLVM_CONFIG} --version
-                 OUTPUT_VARIABLE LLVM_VERSION
-	         OUTPUT_STRIP_TRAILING_WHITESPACE)
-execute_process (COMMAND ${LLVM_CONFIG} --prefix
-                 OUTPUT_VARIABLE LLVM_DIRECTORY
-	         OUTPUT_STRIP_TRAILING_WHITESPACE)
-execute_process (COMMAND ${LLVM_CONFIG} --libdir
-                 OUTPUT_VARIABLE LLVM_LIB_DIR
-  	         OUTPUT_STRIP_TRAILING_WHITESPACE)
-execute_process (COMMAND ${LLVM_CONFIG} --includedir
-                 OUTPUT_VARIABLE LLVM_INCLUDES
-  	         OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process (COMMAND ${LLVM_CONFIG} --version
+       OUTPUT_VARIABLE LLVM_VERSION
+       OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process (COMMAND ${LLVM_CONFIG} --prefix
+       OUTPUT_VARIABLE LLVM_DIRECTORY
+       OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process (COMMAND ${LLVM_CONFIG} --libdir
+       OUTPUT_VARIABLE LLVM_LIB_DIR
+       OUTPUT_STRIP_TRAILING_WHITESPACE)
+  execute_process (COMMAND ${LLVM_CONFIG} --includedir
+       OUTPUT_VARIABLE LLVM_INCLUDES
+       OUTPUT_STRIP_TRAILING_WHITESPACE)
 endif()
 
 find_library ( LLVM_LIBRARY
                NAMES LLVM-${LLVM_VERSION}
                PATHS ${LLVM_LIB_DIR})
 if (VERBOSE)
-message (STATUS "LLVM version  = ${LLVM_VERSION}")
-message (STATUS "LLVM dir      = ${LLVM_DIRECTORY}")
-message (STATUS "LLVM includes = ${LLVM_INCLUDES}")
-message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
-message (STATUS "LLVM lib dir  = ${LLVM_LIB_DIR}")
+    message (STATUS "LLVM version  = ${LLVM_VERSION}")
+    message (STATUS "LLVM dir      = ${LLVM_DIRECTORY}")
+    message (STATUS "LLVM includes = ${LLVM_INCLUDES}")
+    message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
+    message (STATUS "LLVM lib dir  = ${LLVM_LIB_DIR}")
 endif ()
 
 # shared llvm library may not be available, this is not an error if we use LLVM_STATIC.
@@ -241,12 +241,12 @@ if ((LLVM_LIBRARY OR LLVM_STATIC) AND LLVM_INCLUDES AND LLVM_DIRECTORY AND LLVM_
     # way for LLVM_LIBRARY.
     execute_process (COMMAND ${LLVM_CONFIG} --libfiles
                      OUTPUT_VARIABLE LLVM_LIBRARY
-	         OUTPUT_STRIP_TRAILING_WHITESPACE)
+                     OUTPUT_STRIP_TRAILING_WHITESPACE)
     string (REPLACE " " ";" LLVM_LIBRARY ${LLVM_LIBRARY})
   endif ()
   if (VERBOSE)
       message (STATUS "LLVM OSL_LLVM_VERSION = ${OSL_LLVM_VERSION}")
-  message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
+      message (STATUS "LLVM library  = ${LLVM_LIBRARY}")
   endif ()
 
 

@@ -546,7 +546,7 @@ RuntimeOptimizer::llvm_type_groupdata ()
         ShaderInstance *inst = m_group[layer];
         if (inst->unused())
             continue;
-        FOREACH_PARAM_BEGIN (Symbol &sym, inst) {
+        FOREACH_PARAM (Symbol &sym, inst) {
             TypeSpec ts = sym.typespec();
             if (ts.is_structure())  // skip the struct symbol itself
                 continue;
@@ -571,7 +571,6 @@ RuntimeOptimizer::llvm_type_groupdata ()
             m_param_order_map[&sym] = order;
             ++order;
         }
-        FOREACH_PARAM_END
     }
     m_group.llvm_groupdata_size (offset);
 
@@ -846,7 +845,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
             ShaderInstance *gi = group()[i];
             if (gi->unused())
                 continue;
-            FOREACH_PARAM_BEGIN (Symbol &sym, gi) {
+            FOREACH_PARAM (Symbol &sym, gi) {
                if (sym.typespec().is_closure_based()) {
                     int arraylen = std::max (1, sym.typespec().arraylength());
                     llvm::Value *val = llvm_constant_ptr(NULL, llvm_type_void_ptr());
@@ -856,7 +855,6 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
                     }
                 }
             }
-            FOREACH_PARAM_END
             // Unconditionally execute earlier layers that are not lazy
             if (! gi->run_lazily() && i < group().nlayers()-1)
                 llvm_call_layer (i, true /* unconditionally run */);
@@ -897,7 +895,7 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
     }
     // make a second pass for the parameters (which may make use of
     // locals and constants from the first pass)
-    FOREACH_PARAM_BEGIN (Symbol &s, inst()) {
+    FOREACH_PARAM (Symbol &s, inst()) {
         // Skip structure placeholders
         if (s.typespec().is_structure())
             continue;
@@ -907,7 +905,6 @@ RuntimeOptimizer::build_llvm_instance (bool groupentry)
         // Set initial value for params (may contain init ops)
         llvm_assign_initial_value (s);
     }
-    FOREACH_PARAM_END
 
     // All the symbols are stack allocated now.
 

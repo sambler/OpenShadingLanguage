@@ -35,7 +35,7 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 #endif
 
 #include <OpenImageIO/plugin.h>
-using namespace OIIO_NAMESPACE;
+using namespace OIIO;
 
 
 typedef int (*EntryPoint)(int argc, const char *argv[]);

@@ -1352,10 +1352,8 @@ void
 RuntimeOptimizer::mark_outgoing_connections ()
 {
     inst()->outgoing_connections (false);
-
     FOREACH_PARAM (Symbol &s, inst())
         s.connected_down (false);
-
     for (int lay = m_layer+1;  lay < m_group.nlayers();  ++lay) {
         BOOST_FOREACH (Connection &c, m_group[lay]->m_connections)
             if (c.srclayer == m_layer) {

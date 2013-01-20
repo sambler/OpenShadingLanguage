@@ -27,8 +27,8 @@ if (NOT BUILDSTATIC)
         ../liboslcomp/codegen.cpp
         ../liboslcomp/oslcomp.cpp
         ../liboslcomp/symtab.cpp
-          ../liboslcomp/typecheck.cpp
-    )
+        ../liboslcomp/typecheck.cpp
+        )
 endif ()
 
 include_directories ( ${CMAKE_SOURCE_DIR}/liboslcomp )
@@ -45,10 +45,10 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     SET ( llvm_bc "${CMAKE_CURRENT_BINARY_DIR}/${llvmsrc_we}.bc" )
     SET ( llvm_bc_cpp "${CMAKE_CURRENT_BINARY_DIR}/${llvmsrc_we}.bc.cpp" )
     if (VERBOSE)
-    MESSAGE (STATUS "LLVM_COMPILE in=${llvm_src}")
-    MESSAGE (STATUS "LLVM_COMPILE asm=${llvm_asm}")
-    MESSAGE (STATUS "LLVM_COMPILE bc=${llvm_bc}")
-    MESSAGE (STATUS "LLVM_COMPILE cpp=${llvm_bc_cpp}")
+        MESSAGE (STATUS "LLVM_COMPILE in=${llvm_src}")
+        MESSAGE (STATUS "LLVM_COMPILE asm=${llvm_asm}")
+        MESSAGE (STATUS "LLVM_COMPILE bc=${llvm_bc}")
+        MESSAGE (STATUS "LLVM_COMPILE cpp=${llvm_bc_cpp}")
     endif ()
     SET ( ${srclist} ${${srclist}} ${llvm_bc_cpp} )
     EXEC_PROGRAM ( ${LLVM_DIRECTORY}/bin/llvm-config ARGS --cxxflags OUTPUT_VARIABLE LLVM_COMPILE_FLAGS )
@@ -62,7 +62,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
     endif ()
     get_property (CURRENT_DEFINITIONS DIRECTORY PROPERTY COMPILE_DEFINITIONS)
     if (VERBOSE)
-    message (STATUS "Current #defines are ${CURRENT_DEFINITIONS}")
+        message (STATUS "Current #defines are ${CURRENT_DEFINITIONS}")
     endif ()
     foreach (def ${CURRENT_DEFINITIONS})
       LIST (APPEND LLVM_COMPILE_FLAGS "-D${def}")
@@ -80,8 +80,8 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       message (FATAL_ERROR "You must have a valid llvm bitcode generator (either llvm-g++ or clang++) somewhere.")
     else()
       if (VERBOSE)
-      message (STATUS "Using ${LLVM_BC_GENERATOR} to generate bitcode.")
-    endif()
+          message (STATUS "Using ${LLVM_BC_GENERATOR} to generate bitcode.")
+      endif ()
     endif()
 
     # Command to turn the .cpp file into LLVM assembly language .s, into
@@ -95,7 +95,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       -I${Boost_INCLUDE_DIRS} -I${TBB_INCLUDES} -O3 -S -emit-llvm -o ${llvm_asm} ${llvm_src}
 
       COMMAND ${LLVM_DIRECTORY}/bin/llvm-as -f -o ${llvm_bc} ${llvm_asm}
-      COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash ${llvm_bc} ${llvm_bc_cpp}
+      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash ${llvm_bc} ${llvm_bc_cpp}
       MAIN_DEPENDENCY ${llvm_src}
       DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
@@ -114,17 +114,17 @@ endif ()
 if (BUILDSTATIC)
     ADD_LIBRARY ( oslexec STATIC ${liboslexec_srcs} )
 else ()
-ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
+    ADD_LIBRARY ( oslexec SHARED ${liboslexec_srcs} )
 endif ()
 
-    TARGET_LINK_LIBRARIES ( oslexec
-                            ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
-                            ${OPENIMAGEIO_LIBRARY}
+TARGET_LINK_LIBRARIES ( oslexec
+                        ${VISIBILITY_COMMAND} ${VISIBILITY_MAP_COMMAND}
+                        ${OPENIMAGEIO_LIBRARY}
                         ${PARTIO_LIBRARIES} ${ZLIB_LIBRARIES}
-                            ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
-                            ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
-    ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
-    LINK_ILMBASE ( oslexec )
+                        ${Boost_LIBRARIES} ${CMAKE_DL_LIBS}
+                        ${LLVM_LIBRARY} ${EXTRA_OSLEXEC_LIBRARIES})
+ADD_DEPENDENCIES (oslexec ${CMAKE_CURRENT_SOURCE_DIR}/liboslcexec.map)
+LINK_ILMBASE ( oslexec )
 
 if (BUILDSTATIC)
     INSTALL ( TARGETS oslexec LIBRARY DESTINATION lib ARCHIVE DESTINATION lib)
