@@ -95,7 +95,7 @@ MACRO ( LLVM_COMPILE llvm_src srclist )
       -I${Boost_INCLUDE_DIRS} -I${TBB_INCLUDES} -O3 -S -emit-llvm -o ${llvm_asm} ${llvm_src}
 
       COMMAND ${LLVM_DIRECTORY}/bin/llvm-as -f -o ${llvm_bc} ${llvm_asm}
-      COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash ${llvm_bc} ${llvm_bc_cpp}
+      COMMAND sh ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash ${llvm_bc} ${llvm_bc_cpp}
       MAIN_DEPENDENCY ${llvm_src}
       DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/serialize-bc.bash
       WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR} )
